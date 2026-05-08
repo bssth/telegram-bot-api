@@ -175,6 +175,12 @@ type Update struct {
 	//
 	// optional
 	ManagedBot *ManagedBotUpdated `json:"managed_bot,omitempty"`
+	// GuestMessage is a message received from a chat where the bot is not
+	// a member, delivered via guest mode. Reply with answerGuestQuery
+	// using Message.GuestQueryID.
+	//
+	// optional
+	GuestMessage *Message `json:"guest_message,omitempty"`
 }
 
 // SentFrom returns the user who sent an update. Can be nil, if Telegram did not provide information
@@ -301,6 +307,11 @@ type User struct {
 	//
 	// optional
 	SupportsInlineQueries bool `json:"supports_inline_queries,omitempty"`
+	// SupportsGuestQueries is true, if the bot supports guest queries from
+	// chats it is not a member of. Returned only in getMe.
+	//
+	// optional
+	SupportsGuestQueries bool `json:"supports_guest_queries,omitempty"`
 	// CanManageBots is true, if other bots can be created to be controlled by the bot.
 	// Returned only in getMe.
 	//
@@ -708,6 +719,24 @@ type Message struct {
 	//
 	// optional
 	ViaBot *User `json:"via_bot,omitempty"`
+	// GuestQueryID is the unique identifier for the guest query. Use this
+	// identifier with the method answerGuestQuery to send a response
+	// message. If non-empty, the message belongs to the chat where the
+	// guest bot was summoned, which may not coincide with other existing
+	// bot chats sharing the same identifier.
+	//
+	// optional
+	GuestQueryID string `json:"guest_query_id,omitempty"`
+	// GuestBotCallerUser is, for a message sent by a guest bot, the user
+	// whose original message triggered the bot's response.
+	//
+	// optional
+	GuestBotCallerUser *User `json:"guest_bot_caller_user,omitempty"`
+	// GuestBotCallerChat is, for a message sent by a guest bot, the chat
+	// whose original message triggered the bot's response.
+	//
+	// optional
+	GuestBotCallerChat *Chat `json:"guest_bot_caller_chat,omitempty"`
 	// EditDate of the message was last edited in Unix time;
 	//
 	// optional
@@ -764,6 +793,12 @@ type Message struct {
 	//
 	// optional
 	Photo []PhotoSize `json:"photo,omitempty"`
+	// LivePhoto message is a live photo, information about the live photo.
+	// For backward compatibility, when this field is set, the photo field
+	// will also be set.
+	//
+	// optional
+	LivePhoto *LivePhoto `json:"live_photo,omitempty"`
 	// PaidMedia is the paid media attached to the message.
 	//
 	// optional
@@ -1439,6 +1474,35 @@ type Document struct {
 	FileSize int64 `json:"file_size,omitempty"`
 }
 
+// LivePhoto represents a live photo (a photo with a short video).
+type LivePhoto struct {
+	// FileID is an identifier for the video file which can be used to
+	// download or reuse the file.
+	FileID string `json:"file_id"`
+	// FileUniqueID is the unique identifier for the video file which is
+	// supposed to be the same over time and for different bots. Can't be
+	// used to download or reuse the file.
+	FileUniqueID string `json:"file_unique_id"`
+	// Width is the video width as defined by the sender.
+	Width int `json:"width"`
+	// Height is the video height as defined by the sender.
+	Height int `json:"height"`
+	// Duration of the video in seconds as defined by the sender.
+	Duration int `json:"duration"`
+	// Photo are the available sizes of the corresponding static photo.
+	//
+	// optional
+	Photo []PhotoSize `json:"photo,omitempty"`
+	// MimeType is the MIME type of the file as defined by the sender.
+	//
+	// optional
+	MimeType string `json:"mime_type,omitempty"`
+	// FileSize is the file size in bytes.
+	//
+	// optional
+	FileSize int64 `json:"file_size,omitempty"`
+}
+
 // Video represents a video file.
 type Video struct {
 	// FileID identifier for this file, which can be used to download or reuse
@@ -1557,6 +1621,51 @@ type Dice struct {
 	Value int `json:"value"`
 }
 
+// PollMedia represents media attached to a poll, poll option, or quiz
+// explanation. At most one of the optional fields can be present in a given
+// PollMedia value.
+type PollMedia struct {
+	// Animation is set if the media is an animation.
+	//
+	// optional
+	Animation *Animation `json:"animation,omitempty"`
+	// Audio is set if the media is an audio file. Currently, can't appear
+	// in a poll option.
+	//
+	// optional
+	Audio *Audio `json:"audio,omitempty"`
+	// Document is set if the media is a general file. Currently, can't
+	// appear in a poll option.
+	//
+	// optional
+	Document *Document `json:"document,omitempty"`
+	// LivePhoto is set if the media is a live photo.
+	//
+	// optional
+	LivePhoto *LivePhoto `json:"live_photo,omitempty"`
+	// Location is set if the media is a shared location.
+	//
+	// optional
+	Location *Location `json:"location,omitempty"`
+	// Photo is set if the media is a photo.
+	//
+	// optional
+	Photo []PhotoSize `json:"photo,omitempty"`
+	// Sticker is set if the media is a sticker. Currently, only valid for
+	// poll options.
+	//
+	// optional
+	Sticker *Sticker `json:"sticker,omitempty"`
+	// Venue is set if the media is a venue.
+	//
+	// optional
+	Venue *Venue `json:"venue,omitempty"`
+	// Video is set if the media is a video.
+	//
+	// optional
+	Video *Video `json:"video,omitempty"`
+}
+
 // PollOption contains information about one answer option in a poll.
 type PollOption struct {
 	// Text is the option text, 1-100 characters
@@ -1566,6 +1675,10 @@ type PollOption struct {
 	//
 	// optional
 	TextEntities []MessageEntity `json:"text_entities,omitempty"`
+	// Media is the optional media attached to the poll option.
+	//
+	// optional
+	Media *PollMedia `json:"media,omitempty"`
 	// VoterCount is the number of users that voted for this option
 	VoterCount int `json:"voter_count"`
 	// PersistentID is the persistent identifier of the poll option; stays
@@ -1667,7 +1780,20 @@ type Poll struct {
 	//
 	// optional
 	AllowsRevoting bool `json:"allows_revoting,omitempty"`
-	// Description is the text of the poll description.
+	// MembersOnly is true if voting is limited to users who have been
+	// members of the chat where the poll was originally sent for more than
+	// 24 hours.
+	//
+	// optional
+	MembersOnly bool `json:"members_only,omitempty"`
+	// CountryCodes is a list of two-letter ISO 3166-1 alpha-2 country codes
+	// indicating the countries from which users can vote in the poll. If
+	// empty, then users from any country can participate in the poll.
+	//
+	// optional
+	CountryCodes []string `json:"country_codes,omitempty"`
+	// Description is the text of the poll description; for polls inside
+	// the Message object only.
 	//
 	// optional
 	Description string `json:"description,omitempty"`
@@ -1676,6 +1802,11 @@ type Poll struct {
 	//
 	// optional
 	DescriptionEntities []MessageEntity `json:"description_entities,omitempty"`
+	// Media is the media attached to the poll description; for polls inside
+	// the Message object only.
+	//
+	// optional
+	Media *PollMedia `json:"media,omitempty"`
 	// Explanation is text that is shown when a user chooses an incorrect answer
 	// or taps on the lamp icon in a quiz-style poll, 0-200 characters
 	//
@@ -1686,6 +1817,10 @@ type Poll struct {
 	//
 	// optional
 	ExplanationEntities []MessageEntity `json:"explanation_entities,omitempty"`
+	// ExplanationMedia is the media attached to the quiz explanation.
+	//
+	// optional
+	ExplanationMedia *PollMedia `json:"explanation_media,omitempty"`
 	// OpenPeriod is the amount of time in seconds the poll will be active
 	// after creation
 	//
@@ -2661,6 +2796,11 @@ type ChatMember struct {
 	//
 	// optional
 	CanAddWebPagePreviews bool `json:"can_add_web_page_previews,omitempty"`
+	// CanReactToMessages restricted only.
+	// True, if the user is allowed to react to messages.
+	//
+	// optional
+	CanReactToMessages bool `json:"can_react_to_messages,omitempty"`
 }
 
 // IsCreator returns if the ChatMember was the creator of the chat.
@@ -2774,6 +2914,11 @@ type ChatPermissions struct {
 	//
 	// optional
 	CanAddWebPagePreviews bool `json:"can_add_web_page_previews,omitempty"`
+	// CanReactToMessages is true, if the user is allowed to react to
+	// messages. If omitted, defaults to the value of CanSendMessages.
+	//
+	// optional
+	CanReactToMessages bool `json:"can_react_to_messages,omitempty"`
 	// CanChangeInfo is true, if the user is allowed to change the chat title,
 	// photo and other settings. Ignored in public supergroups
 	//
@@ -3167,6 +3312,13 @@ type InputPollOption struct {
 	//
 	// optional
 	TextEntities []MessageEntity `json:"text_entities,omitempty"`
+	// Media is the optional media attached to the poll option. The value
+	// must be one of the InputMedia* variants accepted by InputPollOption
+	// (InputMediaAnimation, InputMediaLivePhoto, InputMediaLocation,
+	// InputMediaPhoto, InputMediaSticker, InputMediaVenue, InputMediaVideo).
+	//
+	// optional
+	Media any `json:"media,omitempty"`
 }
 
 // Birthdate contains information about a user's birthdate.
@@ -3362,18 +3514,20 @@ type StarTransactions struct {
 
 // Paid media type constants.
 const (
-	PaidMediaTypePreview = "preview"
-	PaidMediaTypePhoto   = "photo"
-	PaidMediaTypeVideo   = "video"
+	PaidMediaTypePreview   = "preview"
+	PaidMediaTypePhoto     = "photo"
+	PaidMediaTypeVideo     = "video"
+	PaidMediaTypeLivePhoto = "live_photo"
 )
 
 // PaidMedia describes a media received in a paid message. Flat polymorphic
 // by Type:
-//   - "preview" → Width, Height, Duration (optional)
-//   - "photo"   → Photo is set
-//   - "video"   → Video is set
+//   - "preview"    → Width, Height, Duration (optional)
+//   - "photo"      → Photo is set
+//   - "video"      → Video is set
+//   - "live_photo" → LivePhoto is set
 type PaidMedia struct {
-	// Type of the paid media. One of "preview", "photo", "video".
+	// Type of the paid media. One of "preview", "photo", "video", "live_photo".
 	Type string `json:"type"`
 	// Width is the media width as defined by the sender. Set when Type is
 	// "preview".
@@ -3398,6 +3552,10 @@ type PaidMedia struct {
 	//
 	// optional
 	Video *Video `json:"video,omitempty"`
+	// LivePhoto is the live photo media. Set when Type is "live_photo".
+	//
+	// optional
+	LivePhoto *LivePhoto `json:"live_photo,omitempty"`
 }
 
 // PaidMediaInfo describes the paid media added to a message.
@@ -4323,17 +4481,32 @@ type ChecklistTasksAdded struct {
 	Tasks []ChecklistTask `json:"tasks"`
 }
 
+// Input paid media type constants.
+const (
+	InputPaidMediaTypePhoto     = "photo"
+	InputPaidMediaTypeVideo     = "video"
+	InputPaidMediaTypeLivePhoto = "live_photo"
+)
+
 // InputPaidMedia describes the paid media to be sent. Flat polymorphic by
 // Type:
-//   - "photo" → Media is set
-//   - "video" → Media, Thumbnail, Cover, StartTimestamp, Width, Height,
+//   - "photo"      → Media is set
+//   - "video"      → Media, Thumbnail, Cover, StartTimestamp, Width, Height,
 //     Duration, SupportsStreaming
+//   - "live_photo" → Media (the video portion of the live photo) and Photo
+//     (the static photo) are set; sending live photos by URL is not
+//     supported.
 type InputPaidMedia struct {
-	// Type of the media. One of "photo", "video".
+	// Type of the media. One of "photo", "video", "live_photo".
 	Type string `json:"type"`
 	// Media is the file to send. Pass a file_id or URL, or upload a new one
-	// via FilePath/FileBytes/FileReader.
+	// via FilePath/FileBytes/FileReader. For live_photo, this is the video
+	// portion of the live photo.
 	Media RequestFileData `json:"media"`
+	// Photo is the static photo to send when Type is "live_photo".
+	//
+	// optional
+	Photo RequestFileData `json:"photo,omitempty"`
 	// Thumbnail of the file (video only).
 	//
 	// optional
@@ -4518,6 +4691,10 @@ type ExternalReplyInfo struct {
 	//
 	// optional
 	Photo []PhotoSize `json:"photo,omitempty"`
+	// LivePhoto is set if the message is a live photo.
+	//
+	// optional
+	LivePhoto *LivePhoto `json:"live_photo,omitempty"`
 	// PaidMedia is set if the message contains paid media.
 	//
 	// optional
@@ -5217,6 +5394,79 @@ type InputMediaDocument struct {
 	//
 	// optional
 	DisableContentTypeDetection bool `json:"disable_content_type_detection,omitempty"`
+}
+
+// InputMediaLivePhoto represents a live photo to be sent as part of a media
+// group, sendLivePhoto, or as media in a poll/option/explanation.
+//
+// Sending live photos by URL is not currently supported; both Media and
+// Photo must be either a file_id or a multipart upload.
+type InputMediaLivePhoto struct {
+	BaseInputMedia
+	// Photo is the static photo of the live photo. Pass a file_id to send
+	// a file that exists on the Telegram servers (recommended) or pass an
+	// upload via "attach://<file_attach_name>".
+	Photo RequestFileData `json:"photo"`
+}
+
+// InputMediaSticker represents a sticker file to be sent. Currently used as
+// poll-option media.
+type InputMediaSticker struct {
+	// Type must be "sticker".
+	Type string `json:"type"`
+	// Media is the file to send.
+	Media RequestFileData `json:"media"`
+	// Emoji associated with the sticker; only for just-uploaded stickers.
+	//
+	// optional
+	Emoji string `json:"emoji,omitempty"`
+}
+
+// InputMediaLocation represents a shared location to be sent as media in a
+// poll, poll option, or quiz explanation.
+type InputMediaLocation struct {
+	// Type must be "location".
+	Type string `json:"type"`
+	// Latitude of the location.
+	Latitude float64 `json:"latitude"`
+	// Longitude of the location.
+	Longitude float64 `json:"longitude"`
+	// HorizontalAccuracy is the radius of uncertainty for the location,
+	// measured in meters; 0-1500.
+	//
+	// optional
+	HorizontalAccuracy float64 `json:"horizontal_accuracy,omitempty"`
+}
+
+// InputMediaVenue represents a venue to be sent as media in a poll, poll
+// option, or quiz explanation.
+type InputMediaVenue struct {
+	// Type must be "venue".
+	Type string `json:"type"`
+	// Latitude of the venue.
+	Latitude float64 `json:"latitude"`
+	// Longitude of the venue.
+	Longitude float64 `json:"longitude"`
+	// Title is the name of the venue.
+	Title string `json:"title"`
+	// Address of the venue.
+	Address string `json:"address"`
+	// FoursquareID is the Foursquare identifier of the venue.
+	//
+	// optional
+	FoursquareID string `json:"foursquare_id,omitempty"`
+	// FoursquareType is the Foursquare type of the venue.
+	//
+	// optional
+	FoursquareType string `json:"foursquare_type,omitempty"`
+	// GooglePlaceID is the Google Places identifier of the venue.
+	//
+	// optional
+	GooglePlaceID string `json:"google_place_id,omitempty"`
+	// GooglePlaceType is the Google Places type of the venue.
+	//
+	// optional
+	GooglePlaceType string `json:"google_place_type,omitempty"`
 }
 
 // Sticker type constants.
@@ -6339,6 +6589,25 @@ type SentWebAppMessage struct {
 	//
 	// optional
 	InlineMessageID string `json:"inline_message_id,omitempty"`
+}
+
+// SentGuestMessage describes an inline message sent by a guest bot in
+// response to a guest query.
+type SentGuestMessage struct {
+	// InlineMessageID is the identifier of the sent inline message.
+	InlineMessageID string `json:"inline_message_id"`
+}
+
+// BotAccessSettings describes the access settings of a managed bot.
+type BotAccessSettings struct {
+	// IsAccessRestricted is true, if only selected users can access the
+	// bot. The bot's owner can always access it.
+	IsAccessRestricted bool `json:"is_access_restricted"`
+	// AddedUsers is the list of other users who have access to the bot if
+	// the access is restricted.
+	//
+	// optional
+	AddedUsers []User `json:"added_users,omitempty"`
 }
 
 // InputTextMessageContent contains text for displaying

@@ -1103,6 +1103,47 @@ func (bot *BotAPI) SavePreparedKeyboardButton(config SavePreparedKeyboardButtonC
 	return button, err
 }
 
+// AnswerGuestQuery replies to a received guest message and returns the
+// resulting SentGuestMessage.
+func (bot *BotAPI) AnswerGuestQuery(config AnswerGuestQueryConfig) (SentGuestMessage, error) {
+	var sent SentGuestMessage
+
+	resp, err := bot.Request(config)
+	if err != nil {
+		return sent, err
+	}
+
+	err = json.Unmarshal(resp.Result, &sent)
+	return sent, err
+}
+
+// GetManagedBotAccessSettings returns the access settings of a managed bot.
+func (bot *BotAPI) GetManagedBotAccessSettings(config GetManagedBotAccessSettingsConfig) (BotAccessSettings, error) {
+	var settings BotAccessSettings
+
+	resp, err := bot.Request(config)
+	if err != nil {
+		return settings, err
+	}
+
+	err = json.Unmarshal(resp.Result, &settings)
+	return settings, err
+}
+
+// GetUserPersonalChatMessages returns the last messages from the personal
+// chat of a user.
+func (bot *BotAPI) GetUserPersonalChatMessages(config GetUserPersonalChatMessagesConfig) ([]Message, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return nil, err
+	}
+
+	var messages []Message
+	err = json.Unmarshal(resp.Result, &messages)
+
+	return messages, err
+}
+
 // EscapeText takes an input text and escape Telegram markup symbols.
 // In this way we can send a text without being afraid of having to escape the characters manually.
 // Note that you don't have to include the formatting style in the input text, or it will be escaped too.
