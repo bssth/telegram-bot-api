@@ -138,6 +138,20 @@ func NewVideo(chatID int64, file RequestFileData) VideoConfig {
 	}
 }
 
+// NewLivePhoto creates a new sendLivePhoto request.
+//
+// video is the live photo's video portion (≤10 s, ≤10 MB) and photo is the
+// static image. Sending live photos by URL is not currently supported.
+func NewLivePhoto(chatID int64, video, photo RequestFileData) LivePhotoConfig {
+	return LivePhotoConfig{
+		BaseFile: BaseFile{
+			BaseChat: BaseChat{ChatID: chatID},
+			File:     video,
+		},
+		Photo: photo,
+	}
+}
+
 // NewAnimation creates a new sendAnimation request.
 func NewAnimation(chatID int64, file RequestFileData) AnimationConfig {
 	return AnimationConfig{

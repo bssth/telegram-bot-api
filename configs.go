@@ -690,6 +690,56 @@ func (config VideoConfig) files() []RequestFile {
 	return files
 }
 
+// LivePhotoConfig contains information about a SendLivePhoto request.
+//
+// File holds the live photo video (must be 10 seconds or less and 10 MB or
+// less). Photo holds the static image. Sending live photos by URL is not
+// currently supported.
+type LivePhotoConfig struct {
+	BaseFile
+	Photo                 RequestFileData
+	Caption               string
+	ParseMode             string
+	CaptionEntities       []MessageEntity
+	ShowCaptionAboveMedia bool
+	HasSpoiler            bool
+}
+
+func (config LivePhotoConfig) params() (Params, error) {
+	params, err := config.BaseChat.params()
+	if err != nil {
+		return params, err
+	}
+
+	params.AddNonEmpty("caption", config.Caption)
+	params.AddNonEmpty("parse_mode", config.ParseMode)
+	params.AddBool("show_caption_above_media", config.ShowCaptionAboveMedia)
+	params.AddBool("has_spoiler", config.HasSpoiler)
+	err = params.AddAny("caption_entities", config.CaptionEntities)
+
+	return params, err
+}
+
+func (config LivePhotoConfig) method() string {
+	return "sendLivePhoto"
+}
+
+func (config LivePhotoConfig) files() []RequestFile {
+	files := []RequestFile{{
+		Name: "live_photo",
+		Data: config.File,
+	}}
+
+	if config.Photo != nil {
+		files = append(files, RequestFile{
+			Name: "photo",
+			Data: config.Photo,
+		})
+	}
+
+	return files
+}
+
 // AnimationConfig contains information about a SendAnimation request.
 type AnimationConfig struct {
 	BaseFile
@@ -946,6 +996,11 @@ func (config ContactConfig) method() string {
 }
 
 // SendPollConfig allows you to send a poll.
+//
+// Media and ExplanationMedia accept any of the InputMedia* variants
+// allowed by InputPollMedia (InputMediaAnimation, InputMediaAudio,
+// InputMediaDocument, InputMediaLivePhoto, InputMediaLocation,
+// InputMediaPhoto, InputMediaVenue, InputMediaVideo).
 type SendPollConfig struct {
 	BaseChat
 	Question               string
@@ -954,6 +1009,7 @@ type SendPollConfig struct {
 	Description            string
 	DescriptionParseMode   string
 	DescriptionEntities    []MessageEntity
+	Media                  any
 	Options                []InputPollOption
 	IsAnonymous            bool
 	Type                   string
@@ -962,10 +1018,13 @@ type SendPollConfig struct {
 	ShuffleOptions         bool
 	AllowAddingOptions     bool
 	HideResultsUntilCloses bool
+	MembersOnly            bool
+	CountryCodes           []string
 	CorrectOptionIDs       []int
 	Explanation            string
 	ExplanationParseMode   string
 	ExplanationEntities    []MessageEntity
+	ExplanationMedia       any
 	OpenPeriod             int
 	CloseDate              int
 	IsClosed               bool
@@ -987,6 +1046,9 @@ func (config SendPollConfig) params() (Params, error) {
 	if err = params.AddAny("description_entities", config.DescriptionEntities); err != nil {
 		return params, err
 	}
+	if err = params.AddAny("media", config.Media); err != nil {
+		return params, err
+	}
 	if err = params.AddAny("options", config.Options); err != nil {
 		return params, err
 	}
@@ -997,6 +1059,12 @@ func (config SendPollConfig) params() (Params, error) {
 	params.AddBool("shuffle_options", config.ShuffleOptions)
 	params.AddBool("allow_adding_options", config.AllowAddingOptions)
 	params.AddBool("hide_results_until_closes", config.HideResultsUntilCloses)
+	params.AddBool("members_only", config.MembersOnly)
+	if len(config.CountryCodes) > 0 {
+		if err = params.AddAny("country_codes", config.CountryCodes); err != nil {
+			return params, err
+		}
+	}
 	if len(config.CorrectOptionIDs) > 0 {
 		if err = params.AddAny("correct_option_ids", config.CorrectOptionIDs); err != nil {
 			return params, err
@@ -1007,7 +1075,10 @@ func (config SendPollConfig) params() (Params, error) {
 	params.AddNonEmpty("explanation_parse_mode", config.ExplanationParseMode)
 	params.AddNonZero("open_period", config.OpenPeriod)
 	params.AddNonZero("close_date", config.CloseDate)
-	err = params.AddAny("explanation_entities", config.ExplanationEntities)
+	if err = params.AddAny("explanation_entities", config.ExplanationEntities); err != nil {
+		return params, err
+	}
+	err = params.AddAny("explanation_media", config.ExplanationMedia)
 
 	return params, err
 }
@@ -1703,10 +1774,22 @@ func (ChatMemberCountConfig) method() string {
 // ChatAdministratorsConfig contains information about getting chat administrators.
 type ChatAdministratorsConfig struct {
 	ChatConfig
+	// ReturnBots, if true, additionally returns bots that are administrators
+	// of the chat. By default, bots other than the current bot are omitted.
+	ReturnBots bool
 }
 
 func (ChatAdministratorsConfig) method() string {
 	return "getChatAdministrators"
+}
+
+func (config ChatAdministratorsConfig) params() (Params, error) {
+	params, err := config.ChatConfig.params()
+	if err != nil {
+		return params, err
+	}
+	params.AddBool("return_bots", config.ReturnBots)
+	return params, nil
 }
 
 // SetChatPermissionsConfig allows you to set default permissions for the
@@ -2606,6 +2689,61 @@ func (config SetMessageReactionConfig) params() (Params, error) {
 	err := params.AddAny("reaction", config.Reaction)
 
 	return params, err
+}
+
+// DeleteMessageReactionConfig removes a reaction from a message in a group
+// or supergroup. The bot must have the can_delete_messages administrator
+// right. Either UserID or ActorChatID identifies whose reaction is removed.
+type DeleteMessageReactionConfig struct {
+	ChatID          int64
+	ChannelUsername string
+	MessageID       int
+	UserID          int64
+	ActorChatID     int64
+}
+
+func (config DeleteMessageReactionConfig) method() string {
+	return "deleteMessageReaction"
+}
+
+func (config DeleteMessageReactionConfig) params() (Params, error) {
+	params := make(Params)
+
+	if err := params.AddFirstValid("chat_id", config.ChatID, config.ChannelUsername); err != nil {
+		return params, err
+	}
+	params.AddNonZero("message_id", config.MessageID)
+	params.AddNonZero64("user_id", config.UserID)
+	params.AddNonZero64("actor_chat_id", config.ActorChatID)
+
+	return params, nil
+}
+
+// DeleteAllMessageReactionsConfig removes up to 10000 recent reactions in a
+// group or supergroup added by a given user or chat. The bot must have the
+// can_delete_messages administrator right. Either UserID or ActorChatID
+// identifies whose reactions are removed.
+type DeleteAllMessageReactionsConfig struct {
+	ChatID          int64
+	ChannelUsername string
+	UserID          int64
+	ActorChatID     int64
+}
+
+func (config DeleteAllMessageReactionsConfig) method() string {
+	return "deleteAllMessageReactions"
+}
+
+func (config DeleteAllMessageReactionsConfig) params() (Params, error) {
+	params := make(Params)
+
+	if err := params.AddFirstValid("chat_id", config.ChatID, config.ChannelUsername); err != nil {
+		return params, err
+	}
+	params.AddNonZero64("user_id", config.UserID)
+	params.AddNonZero64("actor_chat_id", config.ActorChatID)
+
+	return params, nil
 }
 
 // GetUserChatBoostsConfig returns the list of boosts added to a chat by a
@@ -3557,14 +3695,17 @@ func (config SendPaidMediaConfig) files() []RequestFile {
 	return prepareInputPaidMediaForFiles(config.Media)
 }
 
-// prepareInputPaidMediaForParams rewrites InputPaidMedia entries whose Media
-// or Thumbnail need uploading to attach:// references, mirroring
+// prepareInputPaidMediaForParams rewrites InputPaidMedia entries whose Media,
+// Photo, or Thumbnail need uploading to attach:// references, mirroring
 // prepareInputMediaForParams for regular media groups.
 func prepareInputPaidMediaForParams(items []InputPaidMedia) []InputPaidMedia {
 	out := make([]InputPaidMedia, len(items))
 	for i, m := range items {
 		if m.Media != nil && m.Media.NeedsUpload() {
 			m.Media = fileAttach(fmt.Sprintf("attach://paid-media-%d", i))
+		}
+		if m.Photo != nil && m.Photo.NeedsUpload() {
+			m.Photo = fileAttach(fmt.Sprintf("attach://paid-media-%d-photo", i))
 		}
 		if m.Thumbnail != nil && m.Thumbnail.NeedsUpload() {
 			m.Thumbnail = fileAttach(fmt.Sprintf("attach://paid-media-%d-thumbnail", i))
@@ -3575,7 +3716,7 @@ func prepareInputPaidMediaForParams(items []InputPaidMedia) []InputPaidMedia {
 }
 
 // prepareInputPaidMediaForFiles returns the upload entries for items in the
-// slice whose Media or Thumbnail need uploading.
+// slice whose Media, Photo, or Thumbnail need uploading.
 func prepareInputPaidMediaForFiles(items []InputPaidMedia) []RequestFile {
 	var files []RequestFile
 	for i, m := range items {
@@ -3583,6 +3724,12 @@ func prepareInputPaidMediaForFiles(items []InputPaidMedia) []RequestFile {
 			files = append(files, RequestFile{
 				Name: fmt.Sprintf("paid-media-%d", i),
 				Data: m.Media,
+			})
+		}
+		if m.Photo != nil && m.Photo.NeedsUpload() {
+			files = append(files, RequestFile{
+				Name: fmt.Sprintf("paid-media-%d-photo", i),
+				Data: m.Photo,
 			})
 		}
 		if m.Thumbnail != nil && m.Thumbnail.NeedsUpload() {
@@ -4416,15 +4563,18 @@ func (GetMyStarBalanceConfig) params() (Params, error) {
 }
 
 // SendMessageDraftConfig streams a partial text message to a user while the
-// content is still being generated. Stream of partial messages is ended by
-// calling sendMessage.
+// content is still being generated. The streamed draft is ephemeral and acts
+// as a 30-second preview; to persist the message, call sendMessage with the
+// finalized text. Pass an empty Text to show a "Thinking..." placeholder.
+//
+// DraftID must be non-zero; updates with the same DraftID animate together.
 type SendMessageDraftConfig struct {
 	ChatID          int64
 	MessageThreadID int
+	DraftID         int64
 	Text            string
 	ParseMode       string
 	Entities        []MessageEntity
-	ReplyParameters *ReplyParameters
 }
 
 func (SendMessageDraftConfig) method() string {
@@ -4436,12 +4586,11 @@ func (config SendMessageDraftConfig) params() (Params, error) {
 
 	params.AddNonZero64("chat_id", config.ChatID)
 	params.AddNonZero("message_thread_id", config.MessageThreadID)
-	params.AddNonEmpty("text", config.Text)
+	params.AddNonZero64("draft_id", config.DraftID)
+	// text is optional; an empty string is meaningful (placeholder).
+	params["text"] = config.Text
 	params.AddNonEmpty("parse_mode", config.ParseMode)
-	if err := params.AddAny("entities", config.Entities); err != nil {
-		return params, err
-	}
-	err := params.AddAny("reply_parameters", config.ReplyParameters)
+	err := params.AddAny("entities", config.Entities)
 
 	return params, err
 }
@@ -4715,6 +4864,96 @@ func (config ReplaceManagedBotTokenConfig) params() (Params, error) {
 	return params, nil
 }
 
+// GetManagedBotAccessSettingsConfig returns the access settings of a managed
+// bot.
+type GetManagedBotAccessSettingsConfig struct {
+	// UserID is the user identifier of the managed bot whose access
+	// settings will be returned.
+	UserID int64
+}
+
+func (GetManagedBotAccessSettingsConfig) method() string {
+	return "getManagedBotAccessSettings"
+}
+
+func (config GetManagedBotAccessSettingsConfig) params() (Params, error) {
+	params := make(Params)
+
+	params.AddNonZero64("user_id", config.UserID)
+
+	return params, nil
+}
+
+// SetManagedBotAccessSettingsConfig updates the access settings of a managed
+// bot. AddedUserIDs is a list of up to 10 users that will gain access in
+// addition to the bot's owner; it is ignored when IsAccessRestricted is
+// false.
+type SetManagedBotAccessSettingsConfig struct {
+	UserID             int64
+	IsAccessRestricted bool
+	AddedUserIDs       []int64
+}
+
+func (SetManagedBotAccessSettingsConfig) method() string {
+	return "setManagedBotAccessSettings"
+}
+
+func (config SetManagedBotAccessSettingsConfig) params() (Params, error) {
+	params := make(Params)
+
+	params.AddNonZero64("user_id", config.UserID)
+	params["is_access_restricted"] = strconv.FormatBool(config.IsAccessRestricted)
+	if len(config.AddedUserIDs) > 0 {
+		if err := params.AddAny("added_user_ids", config.AddedUserIDs); err != nil {
+			return params, err
+		}
+	}
+
+	return params, nil
+}
+
+// GetUserPersonalChatMessagesConfig returns the last messages from a user's
+// personal chat.
+type GetUserPersonalChatMessagesConfig struct {
+	// UserID is the unique identifier of the target user.
+	UserID int64
+	// Limit is the maximum number of messages to return; 1-20.
+	Limit int
+}
+
+func (GetUserPersonalChatMessagesConfig) method() string {
+	return "getUserPersonalChatMessages"
+}
+
+func (config GetUserPersonalChatMessagesConfig) params() (Params, error) {
+	params := make(Params)
+
+	params.AddNonZero64("user_id", config.UserID)
+	params.AddNonZero("limit", config.Limit)
+
+	return params, nil
+}
+
+// AnswerGuestQueryConfig replies to a received guest message. The Result is
+// any of the InlineQueryResult* variants describing the message to be sent.
+type AnswerGuestQueryConfig struct {
+	GuestQueryID string
+	Result       any
+}
+
+func (AnswerGuestQueryConfig) method() string {
+	return "answerGuestQuery"
+}
+
+func (config AnswerGuestQueryConfig) params() (Params, error) {
+	params := make(Params)
+
+	params["guest_query_id"] = config.GuestQueryID
+	err := params.AddAny("result", config.Result)
+
+	return params, err
+}
+
 // SavePreparedKeyboardButtonConfig contains the parameters for the savePreparedKeyboardButton method.
 type SavePreparedKeyboardButtonConfig struct {
 	// UserID is the unique identifier of the target user that can use the button.
@@ -4779,6 +5018,16 @@ func prepareInputMediaParam(inputMedia interface{}, idx int) interface{} {
 		}
 
 		return m
+	case InputMediaLivePhoto:
+		if m.Media != nil && m.Media.NeedsUpload() {
+			m.Media = fileAttach(fmt.Sprintf("attach://file-%d", idx))
+		}
+
+		if m.Photo != nil && m.Photo.NeedsUpload() {
+			m.Photo = fileAttach(fmt.Sprintf("attach://file-%d-photo", idx))
+		}
+
+		return m
 	}
 
 	return nil
@@ -4836,6 +5085,19 @@ func prepareInputMediaFile(inputMedia interface{}, idx int) []RequestFile {
 			files = append(files, RequestFile{
 				Name: fmt.Sprintf("file-%d-thumbnail", idx),
 				Data: m.Thumbnail,
+			})
+		}
+	case InputMediaLivePhoto:
+		if m.Media != nil && m.Media.NeedsUpload() {
+			files = append(files, RequestFile{
+				Name: fmt.Sprintf("file-%d", idx),
+				Data: m.Media,
+			})
+		}
+		if m.Photo != nil && m.Photo.NeedsUpload() {
+			files = append(files, RequestFile{
+				Name: fmt.Sprintf("file-%d-photo", idx),
+				Data: m.Photo,
 			})
 		}
 	case InputMediaAudio:
