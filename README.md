@@ -5,7 +5,7 @@
 > **This is a maintained fork of
 > [`go-telegram-bot-api/telegram-bot-api`](https://github.com/go-telegram-bot-api/telegram-bot-api).**
 > The upstream project stopped updating at Bot API 6.0 (April 2022). This fork
-> is brought up to **Bot API 10.0** (the latest release as of this writing) and
+> is brought up to **Bot API 10.1** (the latest release as of this writing) and
 > tracks the [official changelog](https://core.telegram.org/bots/api-changelog)
 > going forward.
 
@@ -39,7 +39,8 @@ update your imports, or keep using upstream on 6.0.
 If you're coming from `go-telegram-bot-api/telegram-bot-api` v5.5.x and want to
 jump to the latest Bot API, read [**BREAKING.md**](./BREAKING.md). It lists
 every source-incompatible change introduced while bringing the fork from 6.0
-to 10.0, grouped by topic, with before/after snippets for each one. The fastest
+to 10.0, grouped by topic, with before/after snippets for each one (10.1 is
+purely additive and introduced no breaking changes). The fastest
 way to migrate is `grep` your codebase for the old identifier and apply the
 rewrite.
 
@@ -165,9 +166,18 @@ to generate your free TLS certificate there.
 
 ### Bot API versions
 
-Full support for every Bot API version from **6.1 through 10.0**. See git log
+Full support for every Bot API version from **6.1 through 10.1**. See git log
 for the per-version commits; each `Full support of API X` commit message is
 the authoritative trail for what that version added.
+
+The 10.1 surface includes rich messages (`SendRichMessage` via
+`SendRichMessageConfig` + `NewRichMessage`, streaming drafts via
+`SendRichMessageDraftConfig`, the `InputRichMessage` send type, the received
+`RichMessage` / `RichText` / `RichBlock` tree, and `EditMessageTextConfig.RichMessage`),
+join request queries (`AnswerChatJoinRequestQueryConfig`,
+`SendChatJoinRequestWebAppConfig`, `ChatJoinRequest.QueryID`,
+`ChatFullInfo.GuardBot`, `User.SupportsJoinRequestQueries`), and poll links
+(`Link`, `PollMedia.Link`, `InputMediaLink`).
 
 The 10.0 surface includes guest mode (`AnswerGuestQuery`,
 `Update.GuestMessage`, `User.SupportsGuestQueries`), live photos
