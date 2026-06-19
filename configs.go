@@ -1195,6 +1195,9 @@ type EditMessageTextConfig struct {
 	ParseMode          string
 	Entities           []MessageEntity
 	LinkPreviewOptions *LinkPreviewOptions
+	// RichMessage is the new rich content of the message. Required if Text
+	// is not specified.
+	RichMessage *InputRichMessage
 }
 
 func (config EditMessageTextConfig) params() (Params, error) {
@@ -1208,7 +1211,10 @@ func (config EditMessageTextConfig) params() (Params, error) {
 	if err = params.AddAny("link_preview_options", config.LinkPreviewOptions); err != nil {
 		return params, err
 	}
-	err = params.AddAny("entities", config.Entities)
+	if err = params.AddAny("entities", config.Entities); err != nil {
+		return params, err
+	}
+	err = params.AddAny("rich_message", config.RichMessage)
 
 	return params, err
 }
@@ -5152,4 +5158,128 @@ func prepareInputMediaForFiles(inputMedia []interface{}) []RequestFile {
 	}
 
 	return files
+}
+
+// SendRichMessageConfig contains information about a sendRichMessage request.
+// If the message contains a block with a media element, the bot must have the
+// right to send that media to the chat. On success the sent Message is
+// returned, so it can be passed to BotAPI.Send.
+type SendRichMessageConfig struct {
+	BaseChat
+	// RichMessage is the message to be sent.
+	RichMessage *InputRichMessage
+	// SuggestedPostParameters contains the parameters of the suggested post
+	// to send; for direct messages chats only.
+	SuggestedPostParameters *SuggestedPostParameters
+}
+
+func (config SendRichMessageConfig) params() (Params, error) {
+	params, err := config.BaseChat.params()
+	if err != nil {
+		return params, err
+	}
+
+	if err = params.AddAny("rich_message", config.RichMessage); err != nil {
+		return params, err
+	}
+	err = params.AddAny("suggested_post_parameters", config.SuggestedPostParameters)
+
+	return params, err
+}
+
+func (config SendRichMessageConfig) method() string {
+	return "sendRichMessage"
+}
+
+// SendRichMessageDraftConfig streams a partial rich message to a user while
+// the message is being generated. The streamed draft is ephemeral and acts as
+// a temporary 30-second preview; once the output is finalized, sendRichMessage
+// must be called with the complete message to persist it. Returns True on
+// success, so use BotAPI.Request.
+type SendRichMessageDraftConfig struct {
+	// ChatID is the unique identifier for the target private chat. Required.
+	ChatID int64
+	// MessageThreadID is the unique identifier for the target message thread.
+	MessageThreadID int
+	// DraftID is the unique identifier of the message draft; must be
+	// non-zero. Changes to drafts with the same identifier are animated.
+	// Required.
+	DraftID int
+	// RichMessage is the partial message to be streamed. Required.
+	RichMessage *InputRichMessage
+}
+
+func (config SendRichMessageDraftConfig) params() (Params, error) {
+	params := make(Params)
+
+	params.AddNonZero64("chat_id", config.ChatID)
+	params.AddNonZero("message_thread_id", config.MessageThreadID)
+	params.AddNonZero("draft_id", config.DraftID)
+	err := params.AddAny("rich_message", config.RichMessage)
+
+	return params, err
+}
+
+func (config SendRichMessageDraftConfig) method() string {
+	return "sendRichMessageDraft"
+}
+
+// Result values for AnswerChatJoinRequestQueryConfig.
+const (
+	// ChatJoinRequestApprove allows the user to join the chat.
+	ChatJoinRequestApprove = "approve"
+	// ChatJoinRequestDecline disallows the user from joining the chat.
+	ChatJoinRequestDecline = "decline"
+	// ChatJoinRequestQueue leaves the decision to other administrators.
+	ChatJoinRequestQueue = "queue"
+)
+
+// AnswerChatJoinRequestQueryConfig processes a received chat join request
+// query. Returns True on success, so use BotAPI.Request.
+type AnswerChatJoinRequestQueryConfig struct {
+	// ChatJoinRequestQueryID is the unique identifier of the join request
+	// query. Required.
+	ChatJoinRequestQueryID string
+	// Result of the query. Must be one of ChatJoinRequestApprove,
+	// ChatJoinRequestDecline, or ChatJoinRequestQueue. Required.
+	Result string
+}
+
+func (config AnswerChatJoinRequestQueryConfig) params() (Params, error) {
+	params := make(Params)
+
+	params["chat_join_request_query_id"] = config.ChatJoinRequestQueryID
+	params["result"] = config.Result
+
+	return params, nil
+}
+
+func (config AnswerChatJoinRequestQueryConfig) method() string {
+	return "answerChatJoinRequestQuery"
+}
+
+// SendChatJoinRequestWebAppConfig processes a received chat join request query
+// by showing a Mini App to the user before deciding the outcome. Call
+// AnswerChatJoinRequestQueryConfig afterwards to resolve the join request based
+// on the user's interaction with the Mini App. Returns True on success, so use
+// BotAPI.Request.
+type SendChatJoinRequestWebAppConfig struct {
+	// ChatJoinRequestQueryID is the unique identifier of the join request
+	// query. Required.
+	ChatJoinRequestQueryID string
+	// WebAppURL is the URL of the Mini App to be opened. Required.
+	WebAppURL string
+}
+
+func (config SendChatJoinRequestWebAppConfig) params() (Params, error) {
+	params := make(Params)
+
+	params["chat_join_request_query_id"] = config.ChatJoinRequestQueryID
+	params["web_app_url"] = config.WebAppURL
+
+	return params, nil
+}
+
+func (config SendChatJoinRequestWebAppConfig) method() string {
+	return "sendChatJoinRequestWebApp"
 }

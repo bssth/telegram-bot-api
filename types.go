@@ -317,6 +317,11 @@ type User struct {
 	//
 	// optional
 	CanManageBots bool `json:"can_manage_bots,omitempty"`
+	// SupportsJoinRequestQueries is true, if the bot supports join request
+	// queries and can be assigned to process them. Returned only in getMe.
+	//
+	// optional
+	SupportsJoinRequestQueries bool `json:"supports_join_request_queries,omitempty"`
 }
 
 // String displays a simple text version of a user.
@@ -616,6 +621,11 @@ type ChatFullInfo struct {
 	//
 	// optional
 	FirstProfileAudio *Audio `json:"first_profile_audio,omitempty"`
+	// GuardBot is the bot that processes join request queries in the chat.
+	// The field is only available to chat administrators.
+	//
+	// optional
+	GuardBot *User `json:"guard_bot,omitempty"`
 }
 
 // Message represents a message.
@@ -719,6 +729,10 @@ type Message struct {
 	//
 	// optional
 	ViaBot *User `json:"via_bot,omitempty"`
+	// RichMessage is set if the message is a rich formatted message.
+	//
+	// optional
+	RichMessage *RichMessage `json:"rich_message,omitempty"`
 	// GuestQueryID is the unique identifier for the guest query. Use this
 	// identifier with the method answerGuestQuery to send a response
 	// message. If non-empty, the message belongs to the chat where the
@@ -1639,6 +1653,11 @@ type PollMedia struct {
 	//
 	// optional
 	Document *Document `json:"document,omitempty"`
+	// Link is set if the media is an HTTP link. Currently, only valid for
+	// poll options.
+	//
+	// optional
+	Link *Link `json:"link,omitempty"`
 	// LivePhoto is set if the media is a live photo.
 	//
 	// optional
@@ -2866,6 +2885,13 @@ type ChatJoinRequest struct {
 	//
 	// optional
 	InviteLink *ChatInviteLink `json:"invite_link,omitempty"`
+	// QueryID is the identifier of the join request query; for bots assigned
+	// to process join requests only. If present, then the bot must call
+	// sendChatJoinRequestWebApp or directly call answerChatJoinRequestQuery
+	// within 10 seconds.
+	//
+	// optional
+	QueryID string `json:"query_id,omitempty"`
 }
 
 // ChatPermissions describes actions that a non-administrator user is
@@ -3314,8 +3340,9 @@ type InputPollOption struct {
 	TextEntities []MessageEntity `json:"text_entities,omitempty"`
 	// Media is the optional media attached to the poll option. The value
 	// must be one of the InputMedia* variants accepted by InputPollOption
-	// (InputMediaAnimation, InputMediaLivePhoto, InputMediaLocation,
-	// InputMediaPhoto, InputMediaSticker, InputMediaVenue, InputMediaVideo).
+	// (InputMediaAnimation, InputMediaLink, InputMediaLivePhoto,
+	// InputMediaLocation, InputMediaPhoto, InputMediaSticker,
+	// InputMediaVenue, InputMediaVideo).
 	//
 	// optional
 	Media any `json:"media,omitempty"`
@@ -6974,4 +7001,516 @@ type PreCheckoutQuery struct {
 	//
 	// optional
 	OrderInfo *OrderInfo `json:"order_info,omitempty"`
+}
+
+// ===========================================================================
+// Bot API 10.1 — Links and Rich Messages
+// ===========================================================================
+
+// Link represents an HTTP link.
+type Link struct {
+	// URL of the link.
+	URL string `json:"url"`
+}
+
+// InputMediaLinkType is the discriminator value for InputMediaLink.
+const InputMediaLinkType = "link"
+
+// InputMediaLink represents an HTTP link to be sent. It is one of the
+// InputMedia* variants accepted by InputPollOption.Media.
+type InputMediaLink struct {
+	// Type of the media, must be "link".
+	Type string `json:"type"`
+	// URL is the HTTP URL of the link.
+	URL string `json:"url"`
+}
+
+// InputRichMessage describes a rich message to be sent. Exactly one of HTML
+// or Markdown must be set. See the Telegram "rich message formatting options"
+// documentation for the supported markup.
+type InputRichMessage struct {
+	// HTML is the content of the rich message described using HTML
+	// formatting. Exactly one of HTML or Markdown must be set.
+	//
+	// optional
+	HTML string `json:"html,omitempty"`
+	// Markdown is the content of the rich message described using Markdown
+	// formatting. Exactly one of HTML or Markdown must be set.
+	//
+	// optional
+	Markdown string `json:"markdown,omitempty"`
+	// IsRTL, if true, requests that the rich message be shown right-to-left.
+	//
+	// optional
+	IsRTL bool `json:"is_rtl,omitempty"`
+	// SkipEntityDetection, if true, skips automatic detection of entities
+	// (URLs, email addresses, username mentions, hashtags, cashtags, bot
+	// commands, or phone numbers) in the text.
+	//
+	// optional
+	SkipEntityDetection bool `json:"skip_entity_detection,omitempty"`
+}
+
+// InputRichMessageContent represents the content of a rich message to be sent
+// as the result of an inline query.
+type InputRichMessageContent struct {
+	// RichMessage is the message to be sent.
+	RichMessage InputRichMessage `json:"rich_message"`
+}
+
+// RichMessage represents a received rich formatted message, exposed via
+// Message.RichMessage.
+type RichMessage struct {
+	// Blocks is the content of the message.
+	Blocks []RichBlock `json:"blocks"`
+	// IsRTL is true if the rich message must be shown right-to-left.
+	//
+	// optional
+	IsRTL bool `json:"is_rtl,omitempty"`
+}
+
+// RichText styled-span (object form) discriminators.
+const (
+	RichTextTypeBold                   = "bold"
+	RichTextTypeItalic                 = "italic"
+	RichTextTypeUnderline              = "underline"
+	RichTextTypeStrikethrough          = "strikethrough"
+	RichTextTypeSpoiler                = "spoiler"
+	RichTextTypeDateTime               = "date_time"
+	RichTextTypeTextMention            = "text_mention"
+	RichTextTypeSubscript              = "subscript"
+	RichTextTypeSuperscript            = "superscript"
+	RichTextTypeMarked                 = "marked"
+	RichTextTypeCode                   = "code"
+	RichTextTypeCustomEmoji            = "custom_emoji"
+	RichTextTypeMathematicalExpression = "mathematical_expression"
+	RichTextTypeURL                    = "url"
+	RichTextTypeEmailAddress           = "email_address"
+	RichTextTypePhoneNumber            = "phone_number"
+	RichTextTypeBankCardNumber         = "bank_card_number"
+	RichTextTypeMention                = "mention"
+	RichTextTypeHashtag                = "hashtag"
+	RichTextTypeCashtag                = "cashtag"
+	RichTextTypeBotCommand             = "bot_command"
+	RichTextTypeAnchor                 = "anchor"
+	RichTextTypeAnchorLink             = "anchor_link"
+	RichTextTypeReference              = "reference"
+	RichTextTypeReferenceLink          = "reference_link"
+)
+
+// RichText represents a rich formatted text. It is polymorphic: on the wire it
+// is one of
+//   - a plain string (PlainText, with IsPlain set true),
+//   - an array of RichText (Parts), or
+//   - a styled span identified by Type, with nested Text and type-specific
+//     fields.
+//
+// Use the field that matches the form of the value; RichText marshals back to
+// whichever form is populated.
+type RichText struct {
+	// PlainText holds the value when the rich text is a bare string.
+	//
+	// optional
+	PlainText string `json:"-"`
+	// IsPlain reports whether the value was a bare string, so that an empty
+	// PlainText can be distinguished from an unset value.
+	//
+	// optional
+	IsPlain bool `json:"-"`
+	// Parts holds the value when the rich text is an array of RichText.
+	//
+	// optional
+	Parts []RichText `json:"-"`
+
+	// Type is the styled-span discriminator (one of the RichTextType*
+	// constants) when the value is an object; empty for the string and array
+	// forms.
+	//
+	// optional
+	Type string `json:"type,omitempty"`
+	// Text is the nested content of the styled span. Present for most span
+	// types; absent for "anchor".
+	//
+	// optional
+	Text *RichText `json:"text,omitempty"`
+	// UnixTime is the Unix time associated with a "date_time" span.
+	//
+	// optional
+	UnixTime int64 `json:"unix_time,omitempty"`
+	// DateTimeFormat defines the formatting of a "date_time" span.
+	//
+	// optional
+	DateTimeFormat string `json:"date_time_format,omitempty"`
+	// User is the mentioned user of a "text_mention" span.
+	//
+	// optional
+	User *User `json:"user,omitempty"`
+	// CustomEmojiID is the identifier of the custom emoji of a "custom_emoji"
+	// span.
+	//
+	// optional
+	CustomEmojiID string `json:"custom_emoji_id,omitempty"`
+	// AlternativeText is the fallback emoji of a "custom_emoji" span.
+	//
+	// optional
+	AlternativeText string `json:"alternative_text,omitempty"`
+	// Expression is the LaTeX expression of a "mathematical_expression" span.
+	//
+	// optional
+	Expression string `json:"expression,omitempty"`
+	// URL is the link target of a "url" span.
+	//
+	// optional
+	URL string `json:"url,omitempty"`
+	// EmailAddress is the email address of an "email_address" span.
+	//
+	// optional
+	EmailAddress string `json:"email_address,omitempty"`
+	// PhoneNumber is the phone number of a "phone_number" span.
+	//
+	// optional
+	PhoneNumber string `json:"phone_number,omitempty"`
+	// BankCardNumber is the bank card number of a "bank_card_number" span.
+	//
+	// optional
+	BankCardNumber string `json:"bank_card_number,omitempty"`
+	// Username is the username of a "mention" span.
+	//
+	// optional
+	Username string `json:"username,omitempty"`
+	// Hashtag is the hashtag of a "hashtag" span.
+	//
+	// optional
+	Hashtag string `json:"hashtag,omitempty"`
+	// Cashtag is the cashtag of a "cashtag" span.
+	//
+	// optional
+	Cashtag string `json:"cashtag,omitempty"`
+	// BotCommand is the bot command of a "bot_command" span.
+	//
+	// optional
+	BotCommand string `json:"bot_command,omitempty"`
+	// Name is the anchor name of an "anchor" span or the reference name of a
+	// "reference" span.
+	//
+	// optional
+	Name string `json:"name,omitempty"`
+	// AnchorName is the target anchor name of an "anchor_link" span. If empty,
+	// the link points back to the top of the message.
+	//
+	// optional
+	AnchorName string `json:"anchor_name,omitempty"`
+	// ReferenceName is the target reference name of a "reference_link" span.
+	//
+	// optional
+	ReferenceName string `json:"reference_name,omitempty"`
+
+	// Raw preserves the original JSON of the object form for forward
+	// compatibility with span types not yet modeled.
+	//
+	// optional
+	Raw json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON decodes a RichText from its string, array, or object form.
+func (t *RichText) UnmarshalJSON(data []byte) error {
+	*t = RichText{}
+
+	i := 0
+	for i < len(data) && (data[i] == ' ' || data[i] == '\t' || data[i] == '\n' || data[i] == '\r') {
+		i++
+	}
+	if i >= len(data) {
+		return nil
+	}
+
+	switch data[i] {
+	case 'n': // null
+		return nil
+	case '"':
+		t.IsPlain = true
+		return json.Unmarshal(data, &t.PlainText)
+	case '[':
+		return json.Unmarshal(data, &t.Parts)
+	default:
+		type span RichText
+		if err := json.Unmarshal(data, (*span)(t)); err != nil {
+			return err
+		}
+		t.Raw = append(t.Raw[:0], data...)
+		return nil
+	}
+}
+
+// MarshalJSON encodes a RichText in whichever form is populated.
+func (t RichText) MarshalJSON() ([]byte, error) {
+	switch {
+	case t.IsPlain:
+		return json.Marshal(t.PlainText)
+	case t.Parts != nil:
+		return json.Marshal(t.Parts)
+	case t.Type != "":
+		type span RichText
+		return json.Marshal(span(t))
+	case len(t.Raw) > 0:
+		return t.Raw, nil
+	default:
+		return []byte("null"), nil
+	}
+}
+
+// RichBlock block-type discriminators.
+const (
+	RichBlockTypeParagraph              = "paragraph"
+	RichBlockTypeHeading                = "heading"
+	RichBlockTypePre                    = "pre"
+	RichBlockTypeFooter                 = "footer"
+	RichBlockTypeDivider                = "divider"
+	RichBlockTypeMathematicalExpression = "mathematical_expression"
+	RichBlockTypeAnchor                 = "anchor"
+	RichBlockTypeList                   = "list"
+	RichBlockTypeBlockquote             = "blockquote"
+	RichBlockTypePullquote              = "pullquote"
+	RichBlockTypeCollage                = "collage"
+	RichBlockTypeSlideshow              = "slideshow"
+	RichBlockTypeTable                  = "table"
+	RichBlockTypeDetails                = "details"
+	RichBlockTypeMap                    = "map"
+	RichBlockTypeAnimation              = "animation"
+	RichBlockTypeAudio                  = "audio"
+	RichBlockTypePhoto                  = "photo"
+	RichBlockTypeVideo                  = "video"
+	RichBlockTypeVoiceNote              = "voice_note"
+	RichBlockTypeThinking               = "thinking"
+)
+
+// RichBlock represents a block in a rich formatted message. It is a flat
+// polymorphic type keyed by Type; only the fields relevant to a given Type are
+// set. The "caption" wire field is split into Caption (for media blocks) and
+// TableCaption (for the "table" block), which have different shapes; at most
+// one is ever set.
+type RichBlock struct {
+	// Type of the block, one of the RichBlockType* constants.
+	Type string `json:"type"`
+	// Text is the block text. Set for "paragraph", "heading", "pre",
+	// "footer", "pullquote", and "thinking" blocks.
+	//
+	// optional
+	Text *RichText `json:"text,omitempty"`
+	// Size is the relative font size of a "heading" block; 1-6, 1 is largest.
+	//
+	// optional
+	Size int `json:"size,omitempty"`
+	// Language is the programming language of a "pre" block.
+	//
+	// optional
+	Language string `json:"language,omitempty"`
+	// Expression is the LaTeX expression of a "mathematical_expression"
+	// block.
+	//
+	// optional
+	Expression string `json:"expression,omitempty"`
+	// Name is the anchor name of an "anchor" block.
+	//
+	// optional
+	Name string `json:"name,omitempty"`
+	// Items are the items of a "list" block.
+	//
+	// optional
+	Items []RichBlockListItem `json:"items,omitempty"`
+	// Blocks is the nested content of "blockquote", "collage", "slideshow",
+	// and "details" blocks.
+	//
+	// optional
+	Blocks []RichBlock `json:"blocks,omitempty"`
+	// Credit is the credit of "blockquote" and "pullquote" blocks.
+	//
+	// optional
+	Credit *RichText `json:"credit,omitempty"`
+	// Cells are the rows of cells of a "table" block.
+	//
+	// optional
+	Cells [][]RichBlockTableCell `json:"cells,omitempty"`
+	// IsBordered is true if a "table" block has borders.
+	//
+	// optional
+	IsBordered bool `json:"is_bordered,omitempty"`
+	// IsStriped is true if a "table" block is striped.
+	//
+	// optional
+	IsStriped bool `json:"is_striped,omitempty"`
+	// Summary is the always-shown summary of a "details" block.
+	//
+	// optional
+	Summary *RichText `json:"summary,omitempty"`
+	// IsOpen is true if a "details" block is visible by default.
+	//
+	// optional
+	IsOpen bool `json:"is_open,omitempty"`
+	// Location is the center of a "map" block.
+	//
+	// optional
+	Location *Location `json:"location,omitempty"`
+	// Zoom is the zoom level of a "map" block; 13-20.
+	//
+	// optional
+	Zoom int `json:"zoom,omitempty"`
+	// Width is the expected width of a "map" block.
+	//
+	// optional
+	Width int `json:"width,omitempty"`
+	// Height is the expected height of a "map" block.
+	//
+	// optional
+	Height int `json:"height,omitempty"`
+	// Animation is the animation of an "animation" block.
+	//
+	// optional
+	Animation *Animation `json:"animation,omitempty"`
+	// HasSpoiler is true if the preview of an "animation", "photo", or
+	// "video" block is covered by a spoiler.
+	//
+	// optional
+	HasSpoiler bool `json:"has_spoiler,omitempty"`
+	// Audio is the audio of an "audio" block.
+	//
+	// optional
+	Audio *Audio `json:"audio,omitempty"`
+	// Photo are the available sizes of a "photo" block.
+	//
+	// optional
+	Photo []PhotoSize `json:"photo,omitempty"`
+	// Video is the video of a "video" block.
+	//
+	// optional
+	Video *Video `json:"video,omitempty"`
+	// VoiceNote is the voice note of a "voice_note" block.
+	//
+	// optional
+	VoiceNote *Voice `json:"voice_note,omitempty"`
+	// Caption is the caption of a media block ("collage", "slideshow", "map",
+	// "animation", "audio", "photo", "video", "voice_note"). It shares the
+	// "caption" wire field with TableCaption.
+	//
+	// optional
+	Caption *RichBlockCaption `json:"-"`
+	// TableCaption is the caption of a "table" block. It shares the "caption"
+	// wire field with Caption.
+	//
+	// optional
+	TableCaption *RichText `json:"-"`
+}
+
+// UnmarshalJSON decodes a RichBlock, routing the polymorphic "caption" field
+// to Caption or TableCaption based on Type.
+func (b *RichBlock) UnmarshalJSON(data []byte) error {
+	type alias RichBlock
+	aux := struct {
+		*alias
+		Caption json.RawMessage `json:"caption,omitempty"`
+	}{alias: (*alias)(b)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if len(aux.Caption) == 0 || string(aux.Caption) == "null" {
+		return nil
+	}
+
+	if b.Type == RichBlockTypeTable {
+		b.TableCaption = new(RichText)
+		return json.Unmarshal(aux.Caption, b.TableCaption)
+	}
+
+	b.Caption = new(RichBlockCaption)
+	return json.Unmarshal(aux.Caption, b.Caption)
+}
+
+// MarshalJSON encodes a RichBlock, emitting Caption or TableCaption under the
+// shared "caption" wire field.
+func (b RichBlock) MarshalJSON() ([]byte, error) {
+	type alias RichBlock
+	aux := struct {
+		alias
+		Caption json.RawMessage `json:"caption,omitempty"`
+	}{alias: alias(b)}
+
+	switch {
+	case b.TableCaption != nil:
+		raw, err := json.Marshal(b.TableCaption)
+		if err != nil {
+			return nil, err
+		}
+		aux.Caption = raw
+	case b.Caption != nil:
+		raw, err := json.Marshal(b.Caption)
+		if err != nil {
+			return nil, err
+		}
+		aux.Caption = raw
+	}
+
+	return json.Marshal(aux)
+}
+
+// RichBlockCaption is the caption of a rich formatted block.
+type RichBlockCaption struct {
+	// Text is the block caption.
+	Text RichText `json:"text"`
+	// Credit is the block credit, corresponding to the HTML tag <cite>.
+	//
+	// optional
+	Credit *RichText `json:"credit,omitempty"`
+}
+
+// RichBlockTableCell is a cell in a rich formatted table.
+type RichBlockTableCell struct {
+	// Text in the cell. If omitted, the cell is invisible.
+	//
+	// optional
+	Text *RichText `json:"text,omitempty"`
+	// IsHeader is true if the cell is a header cell.
+	//
+	// optional
+	IsHeader bool `json:"is_header,omitempty"`
+	// Colspan is the number of columns the cell spans if it is bigger than 1.
+	//
+	// optional
+	Colspan int `json:"colspan,omitempty"`
+	// Rowspan is the number of rows the cell spans if it is bigger than 1.
+	//
+	// optional
+	Rowspan int `json:"rowspan,omitempty"`
+	// Align is the horizontal cell content alignment; one of "left",
+	// "center", or "right".
+	Align string `json:"align"`
+	// Valign is the vertical cell content alignment; one of "top", "middle",
+	// or "bottom".
+	Valign string `json:"valign"`
+}
+
+// RichBlockListItem is an item of a rich formatted list.
+type RichBlockListItem struct {
+	// Label of the item.
+	Label string `json:"label"`
+	// Blocks is the content of the item.
+	Blocks []RichBlock `json:"blocks"`
+	// HasCheckbox is true if the item has a checkbox.
+	//
+	// optional
+	HasCheckbox bool `json:"has_checkbox,omitempty"`
+	// IsChecked is true if the item has a checked checkbox.
+	//
+	// optional
+	IsChecked bool `json:"is_checked,omitempty"`
+	// Value is, for ordered lists, the numeric value of the item label.
+	//
+	// optional
+	Value int `json:"value,omitempty"`
+	// Type is, for ordered lists, the type of the item label; one of "a", "A",
+	// "i", "I", or "1".
+	//
+	// optional
+	Type string `json:"type,omitempty"`
 }

@@ -152,6 +152,15 @@ func NewLivePhoto(chatID int64, video, photo RequestFileData) LivePhotoConfig {
 	}
 }
 
+// NewRichMessage creates a new sendRichMessage request for the given chat.
+// Exactly one of message.HTML or message.Markdown must be set.
+func NewRichMessage(chatID int64, message InputRichMessage) SendRichMessageConfig {
+	return SendRichMessageConfig{
+		BaseChat:    BaseChat{ChatID: chatID},
+		RichMessage: &message,
+	}
+}
+
 // NewAnimation creates a new sendAnimation request.
 func NewAnimation(chatID int64, file RequestFileData) AnimationConfig {
 	return AnimationConfig{
