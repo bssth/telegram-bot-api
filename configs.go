@@ -130,6 +130,10 @@ const (
 	// UpdateTypeManagedBot is when a new bot was created to be managed by the bot,
 	// or token or owner of a managed bot was changed.
 	UpdateTypeManagedBot = "managed_bot"
+
+	// UpdateTypeSubscription is when a user payment subscription toward the
+	// bot was changed.
+	UpdateTypeSubscription = "subscription"
 )
 
 // Library errors
@@ -337,6 +341,29 @@ func (chat *BaseChat) params() (Params, error) {
 	return params, err
 }
 
+// EphemeralSendParams holds the parameters that make an outgoing message
+// ephemeral, i.e. visible only to a single recipient and the bot. It is
+// embedded by the send configs whose methods support ephemeral messages.
+//
+// Leaving ReceiverUserID zero sends an ordinary, non-ephemeral message.
+type EphemeralSendParams struct {
+	// ReceiverUserID is the unique identifier of the user who will receive
+	// the ephemeral message; for group and supergroup chats only. Delivery is
+	// not guaranteed, especially if the user is offline.
+	ReceiverUserID int64
+	// CallbackQueryID is the identifier of the callback query which triggered
+	// the ephemeral message, if any.
+	CallbackQueryID string
+}
+
+// addTo writes the ephemeral parameters into params. It is a named method
+// rather than params() so that it does not collide with the params() promoted
+// from BaseChat in configs that embed both.
+func (e EphemeralSendParams) addTo(params Params) {
+	params.AddNonZero64("receiver_user_id", e.ReceiverUserID)
+	params.AddNonEmpty("callback_query_id", e.CallbackQueryID)
+}
+
 // BaseFile is a base type for all file config types.
 type BaseFile struct {
 	BaseChat
@@ -379,6 +406,7 @@ func (edit BaseEdit) params() (Params, error) {
 // MessageConfig contains information about a SendMessage request.
 type MessageConfig struct {
 	BaseChat
+	EphemeralSendParams
 	Text               string
 	ParseMode          string
 	Entities           []MessageEntity
@@ -397,6 +425,8 @@ func (config MessageConfig) params() (Params, error) {
 		return params, err
 	}
 	err = params.AddAny("entities", config.Entities)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, err
 }
@@ -470,6 +500,7 @@ func (config CopyMessageConfig) method() string {
 // PhotoConfig contains information about a SendPhoto request.
 type PhotoConfig struct {
 	BaseFile
+	EphemeralSendParams
 	Thumbnail             RequestFileData
 	Caption               string
 	ParseMode             string
@@ -489,6 +520,8 @@ func (config PhotoConfig) params() (Params, error) {
 	params.AddBool("show_caption_above_media", config.ShowCaptionAboveMedia)
 	params.AddBool("has_spoiler", config.HasSpoiler)
 	err = params.AddAny("caption_entities", config.CaptionEntities)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, err
 }
@@ -516,6 +549,7 @@ func (config PhotoConfig) files() []RequestFile {
 // AudioConfig contains information about a SendAudio request.
 type AudioConfig struct {
 	BaseFile
+	EphemeralSendParams
 	Thumbnail       RequestFileData
 	Caption         string
 	ParseMode       string
@@ -537,6 +571,8 @@ func (config AudioConfig) params() (Params, error) {
 	params.AddNonEmpty("caption", config.Caption)
 	params.AddNonEmpty("parse_mode", config.ParseMode)
 	err = params.AddInterface("caption_entities", config.CaptionEntities)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, err
 }
@@ -564,6 +600,7 @@ func (config AudioConfig) files() []RequestFile {
 // DocumentConfig contains information about a SendDocument request.
 type DocumentConfig struct {
 	BaseFile
+	EphemeralSendParams
 	Thumbnail                   RequestFileData
 	Caption                     string
 	ParseMode                   string
@@ -577,6 +614,8 @@ func (config DocumentConfig) params() (Params, error) {
 	params.AddNonEmpty("caption", config.Caption)
 	params.AddNonEmpty("parse_mode", config.ParseMode)
 	params.AddBool("disable_content_type_detection", config.DisableContentTypeDetection)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, err
 }
@@ -604,6 +643,7 @@ func (config DocumentConfig) files() []RequestFile {
 // StickerConfig contains information about a SendSticker request.
 type StickerConfig struct {
 	BaseFile
+	EphemeralSendParams
 	// Emoji associated with the sticker; only for just uploaded stickers.
 	Emoji string
 }
@@ -615,6 +655,8 @@ func (config StickerConfig) params() (Params, error) {
 	}
 
 	params.AddNonEmpty("emoji", config.Emoji)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, nil
 }
@@ -633,6 +675,7 @@ func (config StickerConfig) files() []RequestFile {
 // VideoConfig contains information about a SendVideo request.
 type VideoConfig struct {
 	BaseFile
+	EphemeralSendParams
 	Thumbnail             RequestFileData
 	Cover                 RequestFileData
 	StartTimestamp        int
@@ -659,6 +702,8 @@ func (config VideoConfig) params() (Params, error) {
 	params.AddBool("supports_streaming", config.SupportsStreaming)
 	params.AddBool("has_spoiler", config.HasSpoiler)
 	err = params.AddAny("caption_entities", config.CaptionEntities)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, err
 }
@@ -697,6 +742,7 @@ func (config VideoConfig) files() []RequestFile {
 // currently supported.
 type LivePhotoConfig struct {
 	BaseFile
+	EphemeralSendParams
 	Photo                 RequestFileData
 	Caption               string
 	ParseMode             string
@@ -716,6 +762,8 @@ func (config LivePhotoConfig) params() (Params, error) {
 	params.AddBool("show_caption_above_media", config.ShowCaptionAboveMedia)
 	params.AddBool("has_spoiler", config.HasSpoiler)
 	err = params.AddAny("caption_entities", config.CaptionEntities)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, err
 }
@@ -743,6 +791,7 @@ func (config LivePhotoConfig) files() []RequestFile {
 // AnimationConfig contains information about a SendAnimation request.
 type AnimationConfig struct {
 	BaseFile
+	EphemeralSendParams
 	Duration              int
 	Thumbnail             RequestFileData
 	Caption               string
@@ -764,6 +813,8 @@ func (config AnimationConfig) params() (Params, error) {
 	params.AddBool("show_caption_above_media", config.ShowCaptionAboveMedia)
 	params.AddBool("has_spoiler", config.HasSpoiler)
 	err = params.AddAny("caption_entities", config.CaptionEntities)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, err
 }
@@ -791,6 +842,7 @@ func (config AnimationConfig) files() []RequestFile {
 // VideoNoteConfig contains information about a SendVideoNote request.
 type VideoNoteConfig struct {
 	BaseFile
+	EphemeralSendParams
 	Thumbnail RequestFileData
 	Duration  int
 	Length    int
@@ -801,6 +853,8 @@ func (config VideoNoteConfig) params() (Params, error) {
 
 	params.AddNonZero("duration", config.Duration)
 	params.AddNonZero("length", config.Length)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, err
 }
@@ -828,6 +882,7 @@ func (config VideoNoteConfig) files() []RequestFile {
 // VoiceConfig contains information about a SendVoice request.
 type VoiceConfig struct {
 	BaseFile
+	EphemeralSendParams
 	Thumbnail       RequestFileData
 	Caption         string
 	ParseMode       string
@@ -845,6 +900,8 @@ func (config VoiceConfig) params() (Params, error) {
 	params.AddNonEmpty("caption", config.Caption)
 	params.AddNonEmpty("parse_mode", config.ParseMode)
 	err = params.AddInterface("caption_entities", config.CaptionEntities)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, err
 }
@@ -872,6 +929,7 @@ func (config VoiceConfig) files() []RequestFile {
 // LocationConfig contains information about a SendLocation request.
 type LocationConfig struct {
 	BaseChat
+	EphemeralSendParams
 	Latitude             float64 // required
 	Longitude            float64 // required
 	HorizontalAccuracy   float64 // optional
@@ -889,6 +947,8 @@ func (config LocationConfig) params() (Params, error) {
 	params.AddNonZero("live_period", config.LivePeriod)
 	params.AddNonZero("heading", config.Heading)
 	params.AddNonZero("proximity_alert_radius", config.ProximityAlertRadius)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, err
 }
@@ -941,6 +1001,7 @@ func (config StopMessageLiveLocationConfig) method() string {
 // VenueConfig contains information about a SendVenue request.
 type VenueConfig struct {
 	BaseChat
+	EphemeralSendParams
 	Latitude        float64 // required
 	Longitude       float64 // required
 	Title           string  // required
@@ -963,6 +1024,8 @@ func (config VenueConfig) params() (Params, error) {
 	params.AddNonEmpty("google_place_id", config.GooglePlaceID)
 	params.AddNonEmpty("google_place_type", config.GooglePlaceType)
 
+	config.EphemeralSendParams.addTo(params)
+
 	return params, err
 }
 
@@ -973,6 +1036,7 @@ func (config VenueConfig) method() string {
 // ContactConfig allows you to send a contact.
 type ContactConfig struct {
 	BaseChat
+	EphemeralSendParams
 	PhoneNumber string
 	FirstName   string
 	LastName    string
@@ -987,6 +1051,8 @@ func (config ContactConfig) params() (Params, error) {
 
 	params.AddNonEmpty("last_name", config.LastName)
 	params.AddNonEmpty("vcard", config.VCard)
+
+	config.EphemeralSendParams.addTo(params)
 
 	return params, err
 }
@@ -1288,6 +1354,182 @@ func (config EditMessageReplyMarkupConfig) params() (Params, error) {
 
 func (config EditMessageReplyMarkupConfig) method() string {
 	return "editMessageReplyMarkup"
+}
+
+// BaseEphemeralEdit is the base type for edits and deletions of ephemeral
+// messages. Ephemeral messages are addressed by the chat they were sent to,
+// the user who received them, and their per-chat ephemeral identifier, so they
+// do not use BaseEdit.
+//
+// Either ChatID or ChannelUsername must be set; ChannelUsername targets a
+// supergroup in the @username format.
+type BaseEphemeralEdit struct {
+	// ChatID is the unique identifier for the target chat.
+	ChatID int64
+	// ChannelUsername is the username of the target supergroup, in the
+	// @username format. Used when ChatID is not set.
+	ChannelUsername string
+	// ReceiverUserID is the identifier of the user who received the message.
+	ReceiverUserID int64
+	// EphemeralMessageID is the identifier of the ephemeral message.
+	EphemeralMessageID int
+}
+
+func (edit BaseEphemeralEdit) params() (Params, error) {
+	params := make(Params)
+
+	if err := params.AddFirstValid("chat_id", edit.ChatID, edit.ChannelUsername); err != nil {
+		return params, err
+	}
+	params.AddNonZero64("receiver_user_id", edit.ReceiverUserID)
+	params.AddNonZero("ephemeral_message_id", edit.EphemeralMessageID)
+
+	return params, nil
+}
+
+// EditEphemeralMessageTextConfig allows you to edit the text of an ephemeral
+// message. Delivery of the edit is not guaranteed, especially if the user is
+// offline.
+type EditEphemeralMessageTextConfig struct {
+	BaseEphemeralEdit
+	// Text is the new text of the message, 1-4096 characters after entity
+	// parsing.
+	Text string
+	// ParseMode is the mode for parsing entities in the message text.
+	ParseMode string
+	// Entities is a list of special entities that appear in the message text,
+	// which can be specified instead of ParseMode.
+	Entities []MessageEntity
+	// LinkPreviewOptions are the link preview generation options.
+	LinkPreviewOptions *LinkPreviewOptions
+	// ReplyMarkup is the new inline keyboard for the message.
+	ReplyMarkup *InlineKeyboardMarkup
+}
+
+func (config EditEphemeralMessageTextConfig) params() (Params, error) {
+	params, err := config.BaseEphemeralEdit.params()
+	if err != nil {
+		return params, err
+	}
+
+	params["text"] = config.Text
+	params.AddNonEmpty("parse_mode", config.ParseMode)
+	if err = params.AddAny("entities", config.Entities); err != nil {
+		return params, err
+	}
+	if err = params.AddAny("link_preview_options", config.LinkPreviewOptions); err != nil {
+		return params, err
+	}
+	err = params.AddAny("reply_markup", config.ReplyMarkup)
+
+	return params, err
+}
+
+func (config EditEphemeralMessageTextConfig) method() string {
+	return "editEphemeralMessageText"
+}
+
+// EditEphemeralMessageMediaConfig allows you to edit the media of an ephemeral
+// message. A new file can't be uploaded; use a previously uploaded file via
+// its file_id, or specify a URL.
+type EditEphemeralMessageMediaConfig struct {
+	BaseEphemeralEdit
+	// Media is the new media content of the message.
+	Media interface{}
+	// ReplyMarkup is the new inline keyboard for the message.
+	ReplyMarkup *InlineKeyboardMarkup
+}
+
+func (config EditEphemeralMessageMediaConfig) params() (Params, error) {
+	params, err := config.BaseEphemeralEdit.params()
+	if err != nil {
+		return params, err
+	}
+
+	if err = params.AddAny("media", prepareInputMediaParam(config.Media, 0)); err != nil {
+		return params, err
+	}
+	err = params.AddAny("reply_markup", config.ReplyMarkup)
+
+	return params, err
+}
+
+func (config EditEphemeralMessageMediaConfig) method() string {
+	return "editEphemeralMessageMedia"
+}
+
+// EditEphemeralMessageCaptionConfig allows you to edit the caption of an
+// ephemeral message.
+type EditEphemeralMessageCaptionConfig struct {
+	BaseEphemeralEdit
+	// Caption is the new caption of the message, 0-1024 characters after
+	// entities parsing.
+	Caption string
+	// ParseMode is the mode for parsing entities in the message caption.
+	ParseMode string
+	// CaptionEntities is a list of special entities that appear in the
+	// caption, which can be specified instead of ParseMode.
+	CaptionEntities []MessageEntity
+	// ReplyMarkup is the new inline keyboard for the message.
+	ReplyMarkup *InlineKeyboardMarkup
+}
+
+func (config EditEphemeralMessageCaptionConfig) params() (Params, error) {
+	params, err := config.BaseEphemeralEdit.params()
+	if err != nil {
+		return params, err
+	}
+
+	params.AddNonEmpty("caption", config.Caption)
+	params.AddNonEmpty("parse_mode", config.ParseMode)
+	if err = params.AddAny("caption_entities", config.CaptionEntities); err != nil {
+		return params, err
+	}
+	err = params.AddAny("reply_markup", config.ReplyMarkup)
+
+	return params, err
+}
+
+func (config EditEphemeralMessageCaptionConfig) method() string {
+	return "editEphemeralMessageCaption"
+}
+
+// EditEphemeralMessageReplyMarkupConfig allows you to edit only the reply
+// markup of an ephemeral message.
+type EditEphemeralMessageReplyMarkupConfig struct {
+	BaseEphemeralEdit
+	// ReplyMarkup is the new inline keyboard for the message.
+	ReplyMarkup *InlineKeyboardMarkup
+}
+
+func (config EditEphemeralMessageReplyMarkupConfig) params() (Params, error) {
+	params, err := config.BaseEphemeralEdit.params()
+	if err != nil {
+		return params, err
+	}
+
+	err = params.AddAny("reply_markup", config.ReplyMarkup)
+
+	return params, err
+}
+
+func (config EditEphemeralMessageReplyMarkupConfig) method() string {
+	return "editEphemeralMessageReplyMarkup"
+}
+
+// DeleteEphemeralMessageConfig allows you to delete an ephemeral message.
+// Delivery of the deletion is not guaranteed, especially if the user is
+// offline.
+type DeleteEphemeralMessageConfig struct {
+	BaseEphemeralEdit
+}
+
+func (config DeleteEphemeralMessageConfig) params() (Params, error) {
+	return config.BaseEphemeralEdit.params()
+}
+
+func (config DeleteEphemeralMessageConfig) method() string {
+	return "deleteEphemeralMessage"
 }
 
 // StopPollConfig allows you to stop a poll sent by the bot.
@@ -5004,6 +5246,16 @@ func prepareInputMediaParam(inputMedia interface{}, idx int) interface{} {
 		}
 
 		return m
+	case InputMediaAnimation:
+		if m.Media.NeedsUpload() {
+			m.Media = fileAttach(fmt.Sprintf("attach://file-%d", idx))
+		}
+
+		if m.Thumbnail != nil && m.Thumbnail.NeedsUpload() {
+			m.Thumbnail = fileAttach(fmt.Sprintf("attach://file-%d-thumbnail", idx))
+		}
+
+		return m
 	case InputMediaAudio:
 		if m.Media.NeedsUpload() {
 			m.Media = fileAttach(fmt.Sprintf("attach://file-%d", idx))
@@ -5104,6 +5356,20 @@ func prepareInputMediaFile(inputMedia interface{}, idx int) []RequestFile {
 			files = append(files, RequestFile{
 				Name: fmt.Sprintf("file-%d-photo", idx),
 				Data: m.Photo,
+			})
+		}
+	case InputMediaAnimation:
+		if m.Media.NeedsUpload() {
+			files = append(files, RequestFile{
+				Name: fmt.Sprintf("file-%d", idx),
+				Data: m.Media,
+			})
+		}
+
+		if m.Thumbnail != nil && m.Thumbnail.NeedsUpload() {
+			files = append(files, RequestFile{
+				Name: fmt.Sprintf("file-%d-thumbnail", idx),
+				Data: m.Thumbnail,
 			})
 		}
 	case InputMediaAudio:

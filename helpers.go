@@ -153,7 +153,8 @@ func NewLivePhoto(chatID int64, video, photo RequestFileData) LivePhotoConfig {
 }
 
 // NewRichMessage creates a new sendRichMessage request for the given chat.
-// Exactly one of message.HTML or message.Markdown must be set.
+// Exactly one of message.HTML, message.Markdown, or message.Blocks must be
+// set.
 func NewRichMessage(chatID int64, message InputRichMessage) SendRichMessageConfig {
 	return SendRichMessageConfig{
 		BaseChat:    BaseChat{ChatID: chatID},
@@ -239,6 +240,16 @@ func NewInputMediaAudio(media RequestFileData) InputMediaAudio {
 	return InputMediaAudio{
 		BaseInputMedia: BaseInputMedia{
 			Type:  "audio",
+			Media: media,
+		},
+	}
+}
+
+// NewInputMediaVoiceNote creates a new InputMediaVoiceNote.
+func NewInputMediaVoiceNote(media RequestFileData) InputMediaVoiceNote {
+	return InputMediaVoiceNote{
+		BaseInputMedia: BaseInputMedia{
+			Type:  "voice_note",
 			Media: media,
 		},
 	}
@@ -626,6 +637,71 @@ func NewEditMessageReplyMarkup(chatID int64, messageID int, replyMarkup InlineKe
 			ChatID:      chatID,
 			MessageID:   messageID,
 			ReplyMarkup: &replyMarkup,
+		},
+	}
+}
+
+// NewEditEphemeralMessageText allows you to edit the text of an ephemeral
+// message sent to receiverUserID in the given chat.
+func NewEditEphemeralMessageText(chatID, receiverUserID int64, ephemeralMessageID int, text string) EditEphemeralMessageTextConfig {
+	return EditEphemeralMessageTextConfig{
+		BaseEphemeralEdit: BaseEphemeralEdit{
+			ChatID:             chatID,
+			ReceiverUserID:     receiverUserID,
+			EphemeralMessageID: ephemeralMessageID,
+		},
+		Text: text,
+	}
+}
+
+// NewEditEphemeralMessageCaption allows you to edit the caption of an
+// ephemeral message sent to receiverUserID in the given chat.
+func NewEditEphemeralMessageCaption(chatID, receiverUserID int64, ephemeralMessageID int, caption string) EditEphemeralMessageCaptionConfig {
+	return EditEphemeralMessageCaptionConfig{
+		BaseEphemeralEdit: BaseEphemeralEdit{
+			ChatID:             chatID,
+			ReceiverUserID:     receiverUserID,
+			EphemeralMessageID: ephemeralMessageID,
+		},
+		Caption: caption,
+	}
+}
+
+// NewEditEphemeralMessageMedia allows you to edit the media of an ephemeral
+// message sent to receiverUserID in the given chat. A new file can't be
+// uploaded; use a previously uploaded file via its file_id, or specify a URL.
+func NewEditEphemeralMessageMedia(chatID, receiverUserID int64, ephemeralMessageID int, media interface{}) EditEphemeralMessageMediaConfig {
+	return EditEphemeralMessageMediaConfig{
+		BaseEphemeralEdit: BaseEphemeralEdit{
+			ChatID:             chatID,
+			ReceiverUserID:     receiverUserID,
+			EphemeralMessageID: ephemeralMessageID,
+		},
+		Media: media,
+	}
+}
+
+// NewEditEphemeralMessageReplyMarkup allows you to edit the reply markup of an
+// ephemeral message sent to receiverUserID in the given chat.
+func NewEditEphemeralMessageReplyMarkup(chatID, receiverUserID int64, ephemeralMessageID int, replyMarkup InlineKeyboardMarkup) EditEphemeralMessageReplyMarkupConfig {
+	return EditEphemeralMessageReplyMarkupConfig{
+		BaseEphemeralEdit: BaseEphemeralEdit{
+			ChatID:             chatID,
+			ReceiverUserID:     receiverUserID,
+			EphemeralMessageID: ephemeralMessageID,
+		},
+		ReplyMarkup: &replyMarkup,
+	}
+}
+
+// NewDeleteEphemeralMessage allows you to delete an ephemeral message sent to
+// receiverUserID in the given chat.
+func NewDeleteEphemeralMessage(chatID, receiverUserID int64, ephemeralMessageID int) DeleteEphemeralMessageConfig {
+	return DeleteEphemeralMessageConfig{
+		BaseEphemeralEdit: BaseEphemeralEdit{
+			ChatID:             chatID,
+			ReceiverUserID:     receiverUserID,
+			EphemeralMessageID: ephemeralMessageID,
 		},
 	}
 }

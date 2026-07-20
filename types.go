@@ -181,6 +181,11 @@ type Update struct {
 	//
 	// optional
 	GuestMessage *Message `json:"guest_message,omitempty"`
+	// Subscription is a change to a user payment subscription toward the
+	// bot.
+	//
+	// optional
+	Subscription *BotSubscriptionUpdated `json:"subscription,omitempty"`
 }
 
 // SentFrom returns the user who sent an update. Can be nil, if Telegram did not provide information
@@ -203,6 +208,8 @@ func (u *Update) SentFrom() *User {
 		return u.PreCheckoutQuery.From
 	case u.ManagedBot != nil:
 		return &u.ManagedBot.User
+	case u.Subscription != nil:
+		return &u.Subscription.User
 	default:
 		return nil
 	}
@@ -602,6 +609,10 @@ type ChatFullInfo struct {
 	//
 	// optional
 	ParentChat *Chat `json:"parent_chat,omitempty"`
+	// Community is the community the chat belongs to.
+	//
+	// optional
+	Community *Community `json:"community,omitempty"`
 	// Rating is the rating of the user in a private chat.
 	//
 	// optional
@@ -689,6 +700,17 @@ type Message struct {
 	//
 	// optional
 	SenderTag string `json:"sender_tag,omitempty"`
+	// ReceiverUser is, for ephemeral messages, the user who received the
+	// message.
+	//
+	// optional
+	ReceiverUser *User `json:"receiver_user,omitempty"`
+	// EphemeralMessageID is, for ephemeral messages, the identifier of the
+	// ephemeral message inside this chat. The identifier may be reused for
+	// another ephemeral message after the message is deleted or expires.
+	//
+	// optional
+	EphemeralMessageID int `json:"ephemeral_message_id,omitempty"`
 	// SenderBusinessBot is the bot that actually sent the message on behalf
 	// of the business account. Available only for outgoing messages sent on
 	// behalf of the connected business account.
@@ -1071,6 +1093,16 @@ type Message struct {
 	//
 	// optional
 	PollOptionDeleted *PollOptionDeleted `json:"poll_option_deleted,omitempty"`
+	// CommunityChatAdded is a service message about the chat being added to a
+	// community.
+	//
+	// optional
+	CommunityChatAdded *CommunityChatAdded `json:"community_chat_added,omitempty"`
+	// CommunityChatRemoved is a service message about the chat being removed
+	// from a community.
+	//
+	// optional
+	CommunityChatRemoved *CommunityChatRemoved `json:"community_chat_removed,omitempty"`
 	// ReplyToPollOptionID is the persistent identifier of the poll option
 	// that this message is a reply to.
 	//
@@ -5092,14 +5124,27 @@ type LinkPreviewOptions struct {
 // ReplyParameters describes reply parameters for the message that is being sent.
 type ReplyParameters struct {
 	// MessageID is the identifier of the message that will be replied to in
-	// the current chat, or in the chat ChatID if it is specified.
-	MessageID int `json:"message_id"`
+	// the current chat, or in the chat ChatID if it is specified. Required if
+	// EphemeralMessageID is not specified.
+	//
+	// optional
+	MessageID int `json:"message_id,omitempty"`
 	// ChatID, if the message to be replied to is from a different chat, is
 	// the unique identifier for the chat or username of the channel
-	// (@channelusername). Pass int64 or string.
+	// (@channelusername). Pass int64 or string. Not supported for messages
+	// sent on behalf of a business account, messages from channel direct
+	// messages chats, and ephemeral messages.
 	//
 	// optional
 	ChatID any `json:"chat_id,omitempty"`
+	// EphemeralMessageID is the identifier of the incoming ephemeral message
+	// that will be replied to in the current chat. A reply to an ephemeral
+	// message must itself be an ephemeral message, and may only be sent
+	// within 15 seconds of the original. Required if MessageID is not
+	// specified.
+	//
+	// optional
+	EphemeralMessageID int `json:"ephemeral_message_id,omitempty"`
 	// AllowSendingWithoutReply is true if the message should be sent even if
 	// the specified message to be replied to is not found.
 	//
@@ -5243,6 +5288,11 @@ type BotCommand struct {
 	Command string `json:"command"`
 	// Description of the command, 3-256 characters.
 	Description string `json:"description"`
+	// IsEphemeral is true if the result of the command is an ephemeral
+	// message, visible only to the user who sent the command and the bot.
+	//
+	// optional
+	IsEphemeral bool `json:"is_ephemeral,omitempty"`
 }
 
 // BotCommandScope represents the scope to which bot commands are applied.
@@ -5405,6 +5455,17 @@ type InputMediaAudio struct {
 	//
 	// optional
 	Title string `json:"title,omitempty"`
+}
+
+// InputMediaVoiceNote represents a voice message file to be sent. It is
+// accepted as the media of an InputRichBlock "voice_note" block and by
+// InputRichMessageMedia.
+type InputMediaVoiceNote struct {
+	BaseInputMedia
+	// Duration of the voice message in seconds
+	//
+	// optional
+	Duration int `json:"duration,omitempty"`
 }
 
 // InputMediaDocument is a general file to send as part of a media group.
@@ -7025,20 +7086,32 @@ type InputMediaLink struct {
 	URL string `json:"url"`
 }
 
-// InputRichMessage describes a rich message to be sent. Exactly one of HTML
-// or Markdown must be set. See the Telegram "rich message formatting options"
-// documentation for the supported markup.
+// InputRichMessage describes a rich message to be sent. Exactly one of HTML,
+// Markdown, or Blocks must be set. See the Telegram "rich message formatting
+// options" documentation for the supported markup.
 type InputRichMessage struct {
+	// Blocks is the content of the rich message described as a list of
+	// blocks. Exactly one of HTML, Markdown, or Blocks must be set.
+	//
+	// optional
+	Blocks []InputRichBlock `json:"blocks,omitempty"`
 	// HTML is the content of the rich message described using HTML
-	// formatting. Exactly one of HTML or Markdown must be set.
+	// formatting. Exactly one of HTML, Markdown, or Blocks must be set. Use
+	// Media to specify the media used in the message.
 	//
 	// optional
 	HTML string `json:"html,omitempty"`
 	// Markdown is the content of the rich message described using Markdown
-	// formatting. Exactly one of HTML or Markdown must be set.
+	// formatting. Exactly one of HTML, Markdown, or Blocks must be set. Use
+	// Media to specify the media used in the message.
 	//
 	// optional
 	Markdown string `json:"markdown,omitempty"`
+	// Media is the list of media referenced from the Markdown or HTML fields
+	// using tg://photo?id=, tg://video?id=, and tg://audio?id= links.
+	//
+	// optional
+	Media []InputRichMessageMedia `json:"media,omitempty"`
 	// IsRTL, if true, requests that the rich message be shown right-to-left.
 	//
 	// optional
@@ -7514,3 +7587,253 @@ type RichBlockListItem struct {
 	// optional
 	Type string `json:"type,omitempty"`
 }
+
+// InputRichMessageMedia describes a media element embedded in an outgoing rich
+// message, referenced from InputRichMessage.HTML or InputRichMessage.Markdown.
+type InputRichMessageMedia struct {
+	// ID is the unique identifier of the media used in a tg://photo?id=,
+	// tg://video?id=, or tg://audio?id= link. 1-64 characters; only A-Z, a-z,
+	// 0-9, _ and - are allowed.
+	ID string `json:"id"`
+	// Media to be sent; one of InputMediaAnimation, InputMediaAudio,
+	// InputMediaPhoto, InputMediaVideo, or InputMediaVoiceNote. Everything
+	// except the media itself and its properties is ignored.
+	Media interface{} `json:"media"`
+}
+
+// InputRichBlockListItem is an item of a rich formatted list to be sent.
+type InputRichBlockListItem struct {
+	// Blocks is the content of the item.
+	Blocks []InputRichBlock `json:"blocks"`
+	// HasCheckbox, if true, gives the item a checkbox.
+	//
+	// optional
+	HasCheckbox bool `json:"has_checkbox,omitempty"`
+	// IsChecked, if true, gives the item a checked checkbox.
+	//
+	// optional
+	IsChecked bool `json:"is_checked,omitempty"`
+	// Value is, for ordered lists, the numeric value of the item label.
+	//
+	// optional
+	Value int `json:"value,omitempty"`
+	// Type is, for ordered lists, the type of the item label; one of "a", "A",
+	// "i", "I", or "1".
+	//
+	// optional
+	Type string `json:"type,omitempty"`
+}
+
+// InputRichBlock represents a block in a rich formatted message to be sent. It
+// is a flat polymorphic type keyed by Type; only the fields relevant to a given
+// Type are set. Type takes the same values as RichBlock.Type, so the
+// RichBlockType* constants apply here too.
+//
+// The "caption" wire field is split into Caption (for media blocks) and
+// TableCaption (for the "table" block), which have different shapes; at most
+// one is ever set.
+type InputRichBlock struct {
+	// Type of the block, one of the RichBlockType* constants.
+	Type string `json:"type"`
+	// Text is the block text. Set for "paragraph", "heading", "pre",
+	// "footer", "pullquote", and "thinking" blocks.
+	//
+	// optional
+	Text *RichText `json:"text,omitempty"`
+	// Size is the relative font size of a "heading" block; 1-6, 1 is largest.
+	//
+	// optional
+	Size int `json:"size,omitempty"`
+	// Language is the programming language of a "pre" block.
+	//
+	// optional
+	Language string `json:"language,omitempty"`
+	// Expression is the LaTeX expression of a "mathematical_expression"
+	// block.
+	//
+	// optional
+	Expression string `json:"expression,omitempty"`
+	// Name is the anchor name of an "anchor" block.
+	//
+	// optional
+	Name string `json:"name,omitempty"`
+	// Items are the items of a "list" block.
+	//
+	// optional
+	Items []InputRichBlockListItem `json:"items,omitempty"`
+	// Blocks is the nested content of "blockquote", "collage", "slideshow",
+	// and "details" blocks.
+	//
+	// optional
+	Blocks []InputRichBlock `json:"blocks,omitempty"`
+	// Credit is the credit of "blockquote" and "pullquote" blocks.
+	//
+	// optional
+	Credit *RichText `json:"credit,omitempty"`
+	// Cells are the rows of cells of a "table" block.
+	//
+	// optional
+	Cells [][]RichBlockTableCell `json:"cells,omitempty"`
+	// IsBordered, if true, gives a "table" block borders.
+	//
+	// optional
+	IsBordered bool `json:"is_bordered,omitempty"`
+	// IsStriped, if true, makes a "table" block striped.
+	//
+	// optional
+	IsStriped bool `json:"is_striped,omitempty"`
+	// Summary is the always-shown summary of a "details" block.
+	//
+	// optional
+	Summary *RichText `json:"summary,omitempty"`
+	// IsOpen, if true, makes the content of a "details" block visible by
+	// default.
+	//
+	// optional
+	IsOpen bool `json:"is_open,omitempty"`
+	// Location is the center of a "map" block.
+	//
+	// optional
+	Location *Location `json:"location,omitempty"`
+	// Zoom is the zoom level of a "map" block; 0-24.
+	//
+	// optional
+	Zoom int `json:"zoom,omitempty"`
+	// Width is the width of a "map" block; 0-10000.
+	//
+	// optional
+	Width int `json:"width,omitempty"`
+	// Height is the height of a "map" block; 0-10000.
+	//
+	// optional
+	Height int `json:"height,omitempty"`
+	// Animation is the animation of an "animation" block. Its caption is
+	// ignored.
+	//
+	// optional
+	Animation *InputMediaAnimation `json:"animation,omitempty"`
+	// Audio is the audio of an "audio" block. Its caption is ignored.
+	//
+	// optional
+	Audio *InputMediaAudio `json:"audio,omitempty"`
+	// Photo is the photo of a "photo" block. Its caption is ignored.
+	//
+	// optional
+	Photo *InputMediaPhoto `json:"photo,omitempty"`
+	// Video is the video of a "video" block. Its caption is ignored.
+	//
+	// optional
+	Video *InputMediaVideo `json:"video,omitempty"`
+	// VoiceNote is the voice note of a "voice_note" block. Its caption is
+	// ignored.
+	//
+	// optional
+	VoiceNote *InputMediaVoiceNote `json:"voice_note,omitempty"`
+	// Caption is the caption of a media block ("collage", "slideshow", "map",
+	// "animation", "audio", "photo", "video", "voice_note"). It shares the
+	// "caption" wire field with TableCaption.
+	//
+	// optional
+	Caption *RichBlockCaption `json:"-"`
+	// TableCaption is the caption of a "table" block. It shares the "caption"
+	// wire field with Caption.
+	//
+	// optional
+	TableCaption *RichText `json:"-"`
+}
+
+// UnmarshalJSON decodes an InputRichBlock, routing the polymorphic "caption"
+// field to Caption or TableCaption based on Type.
+func (b *InputRichBlock) UnmarshalJSON(data []byte) error {
+	type alias InputRichBlock
+	aux := struct {
+		*alias
+		Caption json.RawMessage `json:"caption,omitempty"`
+	}{alias: (*alias)(b)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if len(aux.Caption) == 0 || string(aux.Caption) == "null" {
+		return nil
+	}
+
+	if b.Type == RichBlockTypeTable {
+		b.TableCaption = new(RichText)
+		return json.Unmarshal(aux.Caption, b.TableCaption)
+	}
+
+	b.Caption = new(RichBlockCaption)
+	return json.Unmarshal(aux.Caption, b.Caption)
+}
+
+// MarshalJSON encodes an InputRichBlock, emitting Caption or TableCaption
+// under the shared "caption" wire field.
+func (b InputRichBlock) MarshalJSON() ([]byte, error) {
+	type alias InputRichBlock
+	aux := struct {
+		alias
+		Caption json.RawMessage `json:"caption,omitempty"`
+	}{alias: alias(b)}
+
+	switch {
+	case b.TableCaption != nil:
+		raw, err := json.Marshal(b.TableCaption)
+		if err != nil {
+			return nil, err
+		}
+		aux.Caption = raw
+	case b.Caption != nil:
+		raw, err := json.Marshal(b.Caption)
+		if err != nil {
+			return nil, err
+		}
+		aux.Caption = raw
+	}
+
+	return json.Marshal(aux)
+}
+
+// Community represents a community, a group of chats linked together around a
+// shared topic or audience.
+type Community struct {
+	// ID is the unique identifier for this community.
+	ID int64 `json:"id"`
+	// Name of the community.
+	Name string `json:"name"`
+}
+
+// CommunityChatAdded describes a service message about a chat being added to a
+// community.
+type CommunityChatAdded struct {
+	// Community is the new community to which the chat belongs.
+	Community Community `json:"community"`
+}
+
+// CommunityChatRemoved describes a service message about a chat being removed
+// from a community. Currently holds no information.
+type CommunityChatRemoved struct{}
+
+// BotSubscriptionUpdated contains information about changes to a user payment
+// subscription toward the current bot.
+type BotSubscriptionUpdated struct {
+	// User who subscribed for payments toward the bot.
+	User User `json:"user"`
+	// InvoicePayload is the bot-specified invoice payload.
+	InvoicePayload string `json:"invoice_payload"`
+	// State is the new state of the subscription, one of the
+	// BotSubscriptionState* constants.
+	State string `json:"state"`
+}
+
+// BotSubscriptionUpdated.State values.
+const (
+	// BotSubscriptionStateCanceled means the user canceled the subscription.
+	BotSubscriptionStateCanceled = "canceled"
+	// BotSubscriptionStateActive means the user re-enabled a previously
+	// canceled subscription.
+	BotSubscriptionStateActive = "active"
+	// BotSubscriptionStateFailed means payment for the subscription failed.
+	BotSubscriptionStateFailed = "failed"
+)

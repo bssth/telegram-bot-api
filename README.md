@@ -5,7 +5,7 @@
 > **This is a maintained fork of
 > [`go-telegram-bot-api/telegram-bot-api`](https://github.com/go-telegram-bot-api/telegram-bot-api).**
 > The upstream project stopped updating at Bot API 6.0 (April 2022). This fork
-> is brought up to **Bot API 10.1** (the latest release as of this writing) and
+> is brought up to **Bot API 10.2** (the latest release as of this writing) and
 > tracks the [official changelog](https://core.telegram.org/bots/api-changelog)
 > going forward.
 
@@ -39,8 +39,8 @@ update your imports, or keep using upstream on 6.0.
 If you're coming from `go-telegram-bot-api/telegram-bot-api` v5.5.x and want to
 jump to the latest Bot API, read [**BREAKING.md**](./BREAKING.md). It lists
 every source-incompatible change introduced while bringing the fork from 6.0
-to 10.0, grouped by topic, with before/after snippets for each one (10.1 is
-purely additive and introduced no breaking changes). The fastest
+to 10.0, grouped by topic, with before/after snippets for each one (10.1 and
+10.2 are purely additive and introduced no breaking changes). The fastest
 way to migrate is `grep` your codebase for the old identifier and apply the
 rewrite.
 
@@ -166,7 +166,7 @@ to generate your free TLS certificate there.
 
 ### Bot API versions
 
-Full support for every Bot API version from **6.1 through 10.1**. See git log
+Full support for every Bot API version from **6.1 through 10.2**. See git log
 for the per-version commits; each `Full support of API X` commit message is
 the authoritative trail for what that version added.
 
@@ -178,6 +178,16 @@ join request queries (`AnswerChatJoinRequestQueryConfig`,
 `SendChatJoinRequestWebAppConfig`, `ChatJoinRequest.QueryID`,
 `ChatFullInfo.GuardBot`, `User.SupportsJoinRequestQueries`), and poll links
 (`Link`, `PollMedia.Link`, `InputMediaLink`).
+
+The 10.2 surface adds block-structured rich messages (`InputRichBlock`,
+`InputRichBlockListItem`, `InputRichMessage.Blocks`) and explicit media for
+markdown/HTML rich messages (`InputRichMessageMedia`, `InputMediaVoiceNote`),
+ephemeral messages (`EphemeralSendParams` on the send configs that support
+them, `ReplyParameters.EphemeralMessageID`, the `EditEphemeralMessage*` and
+`DeleteEphemeralMessage` configs, `Message.ReceiverUser`,
+`BotCommand.IsEphemeral`), communities (`Community`, `CommunityChatAdded`,
+`CommunityChatRemoved`, `ChatFullInfo.Community`), and payment subscription
+updates (`BotSubscriptionUpdated`, `Update.Subscription`).
 
 The 10.0 surface includes guest mode (`AnswerGuestQuery`,
 `Update.GuestMessage`, `User.SupportsGuestQueries`), live photos
