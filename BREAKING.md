@@ -1,13 +1,29 @@
 # Breaking Changes
 
-This file lists every source-incompatible change introduced while bringing
-this fork from Bot API 6.0 up to 9.6. Upgrades are grouped by topic so you
-can jump straight to the area your code touches.
+This file lists every source-incompatible change between upstream
+`github.com/go-telegram-bot-api/telegram-bot-api/v5` v5.5.1 (Bot API 6.0)
+and this fork (Bot API 10.3). Upgrades are grouped by topic so you can jump
+straight to the area your code touches.
 
 Each section lists **what to rename** or **what to replace** — the fastest
 way to migrate is `grep` for the old identifier in your code and apply the
 rewrite. Nothing here changes runtime semantics beyond what the Telegram
 Bot API itself changed.
+
+---
+
+## Module path
+
+```go
+// Before
+import tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+// After
+import tgbotapi "github.com/bssth/telegram-bot-api/v5"
+```
+
+The package name is still `tgbotapi`. See the README for a one-line `sed`
+command that rewrites the imports.
 
 ---
 
@@ -420,6 +436,48 @@ c, err = bot.GetChat(cfg)
 
 ---
 
+## `getChat`-only fields moved from `Chat` to `ChatFullInfo` (Bot API 7.3)
+
+Since Bot API 7.3 Telegram returns these fields only from `getChat`, as part
+of `ChatFullInfo`; the `Chat` objects inside messages and other updates never
+contain them. They were removed from `Chat` so that reading them there is a
+compile error instead of a silent zero value:
+
+```go
+ActiveUsernames, EmojiStatusCustomEmojiID, EmojiStatusExpirationDate,
+AccentColorID, BackgroundCustomEmojiID, ProfileAccentColorID,
+ProfileBackgroundCustomEmojiID, HasVisibleHistory, HasHiddenMembers,
+HasAggressiveAntiSpamEnabled, UnrestrictBoostCount,
+CustomEmojiStickerSetName, Birthdate, BusinessIntro, BusinessLocation,
+BusinessOpeningHours, PersonalChat, Photo, Bio, HasPrivateForwards,
+HasRestrictedVoiceAndVideoMessages, Description, JoinToSendMessages,
+JoinByRequest, InviteLink, PinnedMessage, AvailableReactions, Permissions,
+SlowModeDelay, MessageAutoDeleteTime, HasProtectedContent, StickerSetName,
+CanSetStickerSet, LinkedChatID, Location
+```
+
+Code that reads them from the result of `bot.GetChat` keeps compiling, since
+it already returns `ChatFullInfo`:
+
+```go
+// Before (always empty)
+update.Message.Chat.Description
+
+// After
+info, err := bot.GetChat(tgbotapi.ChatInfoConfig{ChatConfig: update.Message.Chat.ChatConfig()})
+info.Description
+```
+
+---
+
+## `Message.PremiumAnimation` removed
+
+`premium_animation` is a field of `Sticker`, not `Message`, so
+`Message.PremiumAnimation` was never populated. Use
+`Message.Sticker.PremiumAnimation` instead.
+
+---
+
 ## Types that gained fields (soft-breaking)
 
 A few types changed from empty structs to carrying fields. Anyone who used
@@ -445,7 +503,8 @@ custom configs should do the same.
 
 ## Checklist for upgrading
 
-1. Global find-replace for the `Thumb` → `Thumbnail` renames (Section 1).
+1. Change the import path (see "Module path"), then do a global
+   find-replace for the `Thumb` → `Thumbnail` renames.
 2. Search for `ReplyToMessageID` and migrate each to `ReplyParameters`.
 3. Search for `DisableWebPagePreview` and migrate to `LinkPreviewOptions`.
 4. Search for `ForwardFrom` / `ForwardDate` and switch to `ForwardOrigin`.
@@ -456,5 +515,7 @@ custom configs should do the same.
 7. If you handle business connections, check `Rights` instead of `CanReply`.
 8. If you read quiz correctness, use `CorrectOptionIDs[0]` (or loop for
    multi-answer).
+9. If you read `getChat`-only fields such as `Bio` or `Description` from a
+   `Chat`, read them from the `ChatFullInfo` returned by `bot.GetChat`.
 
 Everything else is additive and should compile unchanged.

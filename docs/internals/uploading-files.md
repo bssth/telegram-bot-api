@@ -17,7 +17,7 @@ Config.
 Most endpoints use static file fields. For example, `sendPhoto` expects a single
 file named `photo`. All we have to do is set that single field with the correct
 value (either a string or multipart file). Methods like `sendDocument` take two
-file uploads, a `document` and a `thumb`. These are pretty straightforward.
+file uploads, a `document` and a `thumbnail`. These are pretty straightforward.
 
 Remembering that the `Fileable` interface only requires one method, let's
 implement it for `DocumentConfig`.
@@ -32,10 +32,10 @@ func (config DocumentConfig) files() []RequestFile {
 	}}
 
     // We'll only add a file if we have one.
-	if config.Thumb != nil {
+	if config.Thumbnail != nil {
 		files = append(files, RequestFile{
-			Name: "thumb",
-			Data: config.Thumb,
+			Name: "thumbnail",
+			Data: config.Thumbnail,
 		})
 	}
 
@@ -85,3 +85,28 @@ are all changed into `attach://file-%d`. When collecting a list of files to
 upload, it names them the same way. This creates a nearly transparent way of
 handling multiple files in the background without the user having to consider
 what's going on.
+
+### Nested Media
+
+Newer methods accept media nested inside JSON-serialized parameters: a poll can
+carry media for its question, each option and the quiz explanation, and a rich
+message can embed photos, videos, documents and so on in its `media` list and
+in its blocks. Telegram resolves `attach://` references anywhere in the request,
+so these work the same way as media groups.
+
+`SendPollConfig`, `SendRichMessageConfig`, `SendRichMessageDraftConfig`,
+`EditMessageTextConfig` and `EditEphemeralMessageTextConfig` walk their nested
+media with a `nestedMediaUploader` (see `nested_media.go`). Every file that
+needs uploading is replaced by `attach://poll-media-%d` or
+`attach://rich-media-%d` in a copy of the media, and the matching
+`RequestFile` is collected for `files()`. Because `params()` and `files()`
+walk the media in the same order, the names always line up, and the caller's
+config is never modified.
+
+```go
+poll := tgbotapi.NewPoll(chatID, "Which one?", "Left", "Right")
+poll.Options[0].Media = tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath("left.jpg"))
+poll.Options[1].Media = tgbotapi.NewInputMediaPhoto(tgbotapi.FileID(rightFileID))
+
+bot.Send(poll)
+```

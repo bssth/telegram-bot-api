@@ -10,7 +10,7 @@ approaches to solve common problems.
 ## Installing
 
 ```bash
-go get -u github.com/bssth/telegram-bot-api/v5
+go get github.com/bssth/telegram-bot-api/v5
 ```
 
 ## A Simple Bot
@@ -90,7 +90,9 @@ things. We can add this code in right after the line enabling debug mode.
 		// We'll also say that this message is a reply to the previous message.
 		// For any other specifications than Chat ID or Text, you'll need to
 		// set fields on the `MessageConfig`.
-		msg.ReplyToMessageID = update.Message.MessageID
+		msg.ReplyParameters = &tgbotapi.ReplyParameters{
+			MessageID: update.Message.MessageID,
+		}
 
 		// Okay, we're sending our message off! We don't care about the message
 		// we just sent, so we'll discard it.
