@@ -3,6 +3,7 @@
 package tgbotapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,7 +30,8 @@ type BotAPI struct {
 	Client          HTTPClient `json:"-"`
 	shutdownChannel chan interface{}
 
-	apiEndpoint string
+	apiEndpoint  string
+	fileEndpoint string
 }
 
 // NewBotAPI creates a new BotAPI instance.
@@ -58,7 +60,8 @@ func NewBotAPIWithClient(token, apiEndpoint string, client HTTPClient) (*BotAPI,
 		Buffer:          100,
 		shutdownChannel: make(chan interface{}),
 
-		apiEndpoint: apiEndpoint,
+		apiEndpoint:  apiEndpoint,
+		fileEndpoint: FileEndpoint,
 	}
 
 	self, err := bot.GetMe()
@@ -76,18 +79,38 @@ func (bot *BotAPI) SetAPIEndpoint(apiEndpoint string) {
 	bot.apiEndpoint = apiEndpoint
 }
 
-func buildParams(in Params) url.Values {
-	if in == nil {
-		return url.Values{}
+// SetFileEndpoint changes the file download endpoint used by the instance.
+// The value must be a format string with two %s placeholders for token and
+// file path, matching the default FileEndpoint constant.
+func (bot *BotAPI) SetFileEndpoint(fileEndpoint string) {
+	bot.fileEndpoint = fileEndpoint
+}
+
+// FileLink returns the full download URL for the given File, using the
+// file endpoint configured on this BotAPI instance.
+func (bot *BotAPI) FileLink(f File) string {
+	endpoint := bot.fileEndpoint
+	if endpoint == "" {
+		endpoint = FileEndpoint
 	}
+	return fmt.Sprintf(endpoint, bot.Token, f.FilePath)
+}
 
+func buildParams(in Params) url.Values {
 	out := url.Values{}
-
 	for key, value := range in {
 		out.Set(key, value)
 	}
-
 	return out
+}
+
+// closeBody drains any unread bytes before closing the response body so that
+// net/http can return the underlying connection to the keep-alive pool.
+// json.Decoder may stop short of EOF (trailing whitespace, partial errors),
+// and an undrained body forces the transport to discard the connection.
+func closeBody(body io.ReadCloser) {
+	_, _ = io.Copy(io.Discard, body)
+	body.Close()
 }
 
 // MakeRequest makes a request to a specific endpoint with our token.
@@ -100,7 +123,7 @@ func (bot *BotAPI) MakeRequest(endpoint string, params Params) (*APIResponse, er
 
 	values := buildParams(params)
 
-	req, err := http.NewRequest("POST", method, strings.NewReader(values.Encode()))
+	req, err := http.NewRequest(http.MethodPost, method, strings.NewReader(values.Encode()))
 	if err != nil {
 		return &APIResponse{}, err
 	}
@@ -110,7 +133,7 @@ func (bot *BotAPI) MakeRequest(endpoint string, params Params) (*APIResponse, er
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp.Body)
 
 	var apiResp APIResponse
 	bytes, err := bot.decodeAPIResponse(resp.Body, &apiResp)
@@ -223,7 +246,7 @@ func (bot *BotAPI) UploadFiles(endpoint string, params Params, files []RequestFi
 
 	method := fmt.Sprintf(bot.apiEndpoint, bot.Token, endpoint)
 
-	req, err := http.NewRequest("POST", method, r)
+	req, err := http.NewRequest(http.MethodPost, method, r)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +257,7 @@ func (bot *BotAPI) UploadFiles(endpoint string, params Params, files []RequestFi
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer closeBody(resp.Body)
 
 	var apiResp APIResponse
 	bytes, err := bot.decodeAPIResponse(resp.Body, &apiResp)
@@ -254,6 +277,7 @@ func (bot *BotAPI) UploadFiles(endpoint string, params Params, files []RequestFi
 		}
 
 		return &apiResp, &Error{
+			Code:               apiResp.ErrorCode,
 			Message:            apiResp.Description,
 			ResponseParameters: parameters,
 		}
@@ -337,10 +361,21 @@ func (bot *BotAPI) Request(c Chattable) (*APIResponse, error) {
 
 // Send will send a Chattable item to Telegram and provides the
 // returned Message.
+//
+// Some Bot API methods (banChatMember, setChatTitle, sendChatAction,
+// etc.) return a bare `true` on success rather than a Message. Send
+// tolerates that shape and returns a zero Message with nil error, so
+// callers that reach for Send by reflex don't get a confusing JSON
+// unmarshal error. Prefer Request for methods whose documented return
+// type is not a Message.
 func (bot *BotAPI) Send(c Chattable) (Message, error) {
 	resp, err := bot.Request(c)
 	if err != nil {
 		return Message{}, err
+	}
+
+	if len(resp.Result) == 0 || bytes.Equal(resp.Result, []byte("true")) {
+		return Message{}, nil
 	}
 
 	var message Message
@@ -441,7 +476,11 @@ func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) UpdatesChannel {
 
 			updates, err := bot.GetUpdates(config)
 			if err != nil {
-				log.Println(err)
+				// Network errors from http.Post embed the full request URL,
+				// which in our case contains bot.Token. Strip it before
+				// logging so the token can't leak to logs.
+				redacted := strings.ReplaceAll(err.Error(), bot.Token, "<token>")
+				log.Println(redacted)
 				log.Println("Failed to get updates, retrying in 3 seconds...")
 				time.Sleep(time.Second * 3)
 
@@ -552,17 +591,20 @@ func WriteToHTTPResponse(w http.ResponseWriter, c Chattable) error {
 	return err
 }
 
-// GetChat gets information about a chat.
-func (bot *BotAPI) GetChat(config ChatInfoConfig) (Chat, error) {
+// GetChat gets full information about a chat.
+//
+// As of Bot API 7.3 the return type is ChatFullInfo, which embeds Chat and
+// adds the fields that are only populated by getChat.
+func (bot *BotAPI) GetChat(config ChatInfoConfig) (ChatFullInfo, error) {
 	resp, err := bot.Request(config)
 	if err != nil {
-		return Chat{}, err
+		return ChatFullInfo{}, err
 	}
 
-	var chat Chat
-	err = json.Unmarshal(resp.Result, &chat)
+	var info ChatFullInfo
+	err = json.Unmarshal(resp.Result, &info)
 
-	return chat, err
+	return info, err
 }
 
 // GetChatAdministrators gets a list of administrators in the chat.
@@ -646,6 +688,307 @@ func (bot *BotAPI) GetStickerSet(config GetStickerSetConfig) (StickerSet, error)
 	return stickers, err
 }
 
+// GetCustomEmojiStickers returns information about custom emoji stickers by their identifiers.
+func (bot *BotAPI) GetCustomEmojiStickers(config GetCustomEmojiStickersConfig) ([]Sticker, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return nil, err
+	}
+
+	var stickers []Sticker
+	err = json.Unmarshal(resp.Result, &stickers)
+
+	return stickers, err
+}
+
+// CreateForumTopic creates a topic in a forum supergroup chat and returns
+// information about the created topic.
+func (bot *BotAPI) CreateForumTopic(config CreateForumTopicConfig) (ForumTopic, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return ForumTopic{}, err
+	}
+
+	var topic ForumTopic
+	err = json.Unmarshal(resp.Result, &topic)
+
+	return topic, err
+}
+
+// GetForumTopicIconStickers returns custom emoji stickers, which can be used
+// as a forum topic icon by any user.
+func (bot *BotAPI) GetForumTopicIconStickers() ([]Sticker, error) {
+	resp, err := bot.Request(GetForumTopicIconStickersConfig{})
+	if err != nil {
+		return nil, err
+	}
+
+	var stickers []Sticker
+	err = json.Unmarshal(resp.Result, &stickers)
+
+	return stickers, err
+}
+
+// GetUserChatBoosts returns the list of boosts added to a chat by a user.
+func (bot *BotAPI) GetUserChatBoosts(config GetUserChatBoostsConfig) (UserChatBoosts, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return UserChatBoosts{}, err
+	}
+
+	var boosts UserChatBoosts
+	err = json.Unmarshal(resp.Result, &boosts)
+
+	return boosts, err
+}
+
+// ForwardMessages forwards multiple messages of any kind and returns the
+// identifiers of the sent messages.
+func (bot *BotAPI) ForwardMessages(config ForwardMessagesConfig) ([]MessageID, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return nil, err
+	}
+
+	var ids []MessageID
+	err = json.Unmarshal(resp.Result, &ids)
+
+	return ids, err
+}
+
+// CopyMessages copies messages of any kind and returns the identifiers of
+// the sent messages.
+func (bot *BotAPI) CopyMessages(config CopyMessagesConfig) ([]MessageID, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return nil, err
+	}
+
+	var ids []MessageID
+	err = json.Unmarshal(resp.Result, &ids)
+
+	return ids, err
+}
+
+// GetAvailableGifts returns the list of gifts that can be sent by the bot
+// to users.
+func (bot *BotAPI) GetAvailableGifts() (Gifts, error) {
+	resp, err := bot.Request(GetAvailableGiftsConfig{})
+	if err != nil {
+		return Gifts{}, err
+	}
+
+	var gifts Gifts
+	err = json.Unmarshal(resp.Result, &gifts)
+
+	return gifts, err
+}
+
+// SavePreparedInlineMessage stores a message that can be sent by a user of
+// a Mini App and returns a PreparedInlineMessage.
+func (bot *BotAPI) SavePreparedInlineMessage(config SavePreparedInlineMessageConfig) (PreparedInlineMessage, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return PreparedInlineMessage{}, err
+	}
+
+	var msg PreparedInlineMessage
+	err = json.Unmarshal(resp.Result, &msg)
+
+	return msg, err
+}
+
+// GetStarTransactions returns the bot's Telegram Star transactions in
+// chronological order.
+func (bot *BotAPI) GetStarTransactions(config GetStarTransactionsConfig) (StarTransactions, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return StarTransactions{}, err
+	}
+
+	var st StarTransactions
+	err = json.Unmarshal(resp.Result, &st)
+
+	return st, err
+}
+
+// GetUserProfileAudios fetches a list of audios added to the profile of
+// a user.
+func (bot *BotAPI) GetUserProfileAudios(config GetUserProfileAudiosConfig) (UserProfileAudios, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return UserProfileAudios{}, err
+	}
+
+	var audios UserProfileAudios
+	err = json.Unmarshal(resp.Result, &audios)
+
+	return audios, err
+}
+
+// GetMyStarBalance returns the current Telegram Stars balance of the bot.
+func (bot *BotAPI) GetMyStarBalance() (StarAmount, error) {
+	resp, err := bot.Request(GetMyStarBalanceConfig{})
+	if err != nil {
+		return StarAmount{}, err
+	}
+
+	var amount StarAmount
+	err = json.Unmarshal(resp.Result, &amount)
+
+	return amount, err
+}
+
+// GetBusinessAccountStarBalance returns the amount of Telegram Stars owned
+// by a managed business account.
+func (bot *BotAPI) GetBusinessAccountStarBalance(config GetBusinessAccountStarBalanceConfig) (StarAmount, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return StarAmount{}, err
+	}
+
+	var amount StarAmount
+	err = json.Unmarshal(resp.Result, &amount)
+
+	return amount, err
+}
+
+// GetUserGifts returns the list of gifts received and owned by a user.
+func (bot *BotAPI) GetUserGifts(config GetUserGiftsConfig) (OwnedGifts, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return OwnedGifts{}, err
+	}
+
+	var gifts OwnedGifts
+	err = json.Unmarshal(resp.Result, &gifts)
+
+	return gifts, err
+}
+
+// GetChatGifts returns the list of gifts received and owned by a chat.
+func (bot *BotAPI) GetChatGifts(config GetChatGiftsConfig) (OwnedGifts, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return OwnedGifts{}, err
+	}
+
+	var gifts OwnedGifts
+	err = json.Unmarshal(resp.Result, &gifts)
+
+	return gifts, err
+}
+
+// RepostStory reposts a story across different business accounts managed
+// by the bot and returns the newly posted Story.
+func (bot *BotAPI) RepostStory(config RepostStoryConfig) (Story, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return Story{}, err
+	}
+
+	var story Story
+	err = json.Unmarshal(resp.Result, &story)
+
+	return story, err
+}
+
+// GetBusinessAccountGifts returns the gifts received and owned by a managed
+// business account.
+func (bot *BotAPI) GetBusinessAccountGifts(config GetBusinessAccountGiftsConfig) (OwnedGifts, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return OwnedGifts{}, err
+	}
+
+	var gifts OwnedGifts
+	err = json.Unmarshal(resp.Result, &gifts)
+
+	return gifts, err
+}
+
+// PostStory posts a story on behalf of a managed business account and
+// returns the posted Story.
+func (bot *BotAPI) PostStory(config PostStoryConfig) (Story, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return Story{}, err
+	}
+
+	var story Story
+	err = json.Unmarshal(resp.Result, &story)
+
+	return story, err
+}
+
+// EditStory edits a story previously posted by the bot and returns the
+// edited Story.
+func (bot *BotAPI) EditStory(config EditStoryConfig) (Story, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return Story{}, err
+	}
+
+	var story Story
+	err = json.Unmarshal(resp.Result, &story)
+
+	return story, err
+}
+
+// GetBusinessConnection returns information about the connection of the bot
+// with a business account.
+func (bot *BotAPI) GetBusinessConnection(config GetBusinessConnectionConfig) (BusinessConnection, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return BusinessConnection{}, err
+	}
+
+	var bc BusinessConnection
+	err = json.Unmarshal(resp.Result, &bc)
+
+	return bc, err
+}
+
+// GetMyName returns the current bot name for the given user language.
+func (bot *BotAPI) GetMyName(config GetMyNameConfig) (BotName, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return BotName{}, err
+	}
+
+	var name BotName
+	err = json.Unmarshal(resp.Result, &name)
+
+	return name, err
+}
+
+// GetMyDescription returns the current bot description for the given user language.
+func (bot *BotAPI) GetMyDescription(config GetMyDescriptionConfig) (BotDescription, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return BotDescription{}, err
+	}
+
+	var desc BotDescription
+	err = json.Unmarshal(resp.Result, &desc)
+
+	return desc, err
+}
+
+// GetMyShortDescription returns the current bot short description for the
+// given user language.
+func (bot *BotAPI) GetMyShortDescription(config GetMyShortDescriptionConfig) (BotShortDescription, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return BotShortDescription{}, err
+	}
+
+	var desc BotShortDescription
+	err = json.Unmarshal(resp.Result, &desc)
+
+	return desc, err
+}
+
 // StopPoll stops a poll and returns the result.
 func (bot *BotAPI) StopPoll(config StopPollConfig) (Poll, error) {
 	resp, err := bot.Request(config)
@@ -717,6 +1060,88 @@ func (bot *BotAPI) GetMyDefaultAdministratorRights(config GetMyDefaultAdministra
 
 	err = json.Unmarshal(resp.Result, &rights)
 	return rights, err
+}
+
+// GetManagedBotToken returns the token of a managed bot.
+func (bot *BotAPI) GetManagedBotToken(config GetManagedBotTokenConfig) (string, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return "", err
+	}
+
+	var token string
+	err = json.Unmarshal(resp.Result, &token)
+
+	return token, err
+}
+
+// ReplaceManagedBotToken revokes the current token of a managed bot
+// and generates a new one. Returns the new token.
+func (bot *BotAPI) ReplaceManagedBotToken(config ReplaceManagedBotTokenConfig) (string, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return "", err
+	}
+
+	var token string
+	err = json.Unmarshal(resp.Result, &token)
+
+	return token, err
+}
+
+// SavePreparedKeyboardButton stores a keyboard button that can be used
+// by a user within a Mini App. Returns a PreparedKeyboardButton.
+func (bot *BotAPI) SavePreparedKeyboardButton(config SavePreparedKeyboardButtonConfig) (PreparedKeyboardButton, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return PreparedKeyboardButton{}, err
+	}
+
+	var button PreparedKeyboardButton
+	err = json.Unmarshal(resp.Result, &button)
+
+	return button, err
+}
+
+// AnswerGuestQuery replies to a received guest message and returns the
+// resulting SentGuestMessage.
+func (bot *BotAPI) AnswerGuestQuery(config AnswerGuestQueryConfig) (SentGuestMessage, error) {
+	var sent SentGuestMessage
+
+	resp, err := bot.Request(config)
+	if err != nil {
+		return sent, err
+	}
+
+	err = json.Unmarshal(resp.Result, &sent)
+	return sent, err
+}
+
+// GetManagedBotAccessSettings returns the access settings of a managed bot.
+func (bot *BotAPI) GetManagedBotAccessSettings(config GetManagedBotAccessSettingsConfig) (BotAccessSettings, error) {
+	var settings BotAccessSettings
+
+	resp, err := bot.Request(config)
+	if err != nil {
+		return settings, err
+	}
+
+	err = json.Unmarshal(resp.Result, &settings)
+	return settings, err
+}
+
+// GetUserPersonalChatMessages returns the last messages from the personal
+// chat of a user.
+func (bot *BotAPI) GetUserPersonalChatMessages(config GetUserPersonalChatMessagesConfig) ([]Message, error) {
+	resp, err := bot.Request(config)
+	if err != nil {
+		return nil, err
+	}
+
+	var messages []Message
+	err = json.Unmarshal(resp.Result, &messages)
+
+	return messages, err
 }
 
 // EscapeText takes an input text and escape Telegram markup symbols.

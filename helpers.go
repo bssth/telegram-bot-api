@@ -17,11 +17,9 @@ import (
 func NewMessage(chatID int64, text string) MessageConfig {
 	return MessageConfig{
 		BaseChat: BaseChat{
-			ChatID:           chatID,
-			ReplyToMessageID: 0,
+			ChatID: chatID,
 		},
-		Text:                  text,
-		DisableWebPagePreview: false,
+		Text: text,
 	}
 }
 
@@ -140,6 +138,30 @@ func NewVideo(chatID int64, file RequestFileData) VideoConfig {
 	}
 }
 
+// NewLivePhoto creates a new sendLivePhoto request.
+//
+// video is the live photo's video portion (≤10 s, ≤10 MB) and photo is the
+// static image. Sending live photos by URL is not currently supported.
+func NewLivePhoto(chatID int64, video, photo RequestFileData) LivePhotoConfig {
+	return LivePhotoConfig{
+		BaseFile: BaseFile{
+			BaseChat: BaseChat{ChatID: chatID},
+			File:     video,
+		},
+		Photo: photo,
+	}
+}
+
+// NewRichMessage creates a new sendRichMessage request for the given chat.
+// Exactly one of message.HTML, message.Markdown, or message.Blocks must be
+// set.
+func NewRichMessage(chatID int64, message InputRichMessage) SendRichMessageConfig {
+	return SendRichMessageConfig{
+		BaseChat:    BaseChat{ChatID: chatID},
+		RichMessage: &message,
+	}
+}
+
 // NewAnimation creates a new sendAnimation request.
 func NewAnimation(chatID int64, file RequestFileData) AnimationConfig {
 	return AnimationConfig{
@@ -186,7 +208,7 @@ func NewMediaGroup(chatID int64, files []interface{}) MediaGroupConfig {
 // NewInputMediaPhoto creates a new InputMediaPhoto.
 func NewInputMediaPhoto(media RequestFileData) InputMediaPhoto {
 	return InputMediaPhoto{
-		BaseInputMedia{
+		BaseInputMedia: BaseInputMedia{
 			Type:  "photo",
 			Media: media,
 		},
@@ -218,6 +240,16 @@ func NewInputMediaAudio(media RequestFileData) InputMediaAudio {
 	return InputMediaAudio{
 		BaseInputMedia: BaseInputMedia{
 			Type:  "audio",
+			Media: media,
+		},
+	}
+}
+
+// NewInputMediaVoiceNote creates a new InputMediaVoiceNote.
+func NewInputMediaVoiceNote(media RequestFileData) InputMediaVoiceNote {
+	return InputMediaVoiceNote{
+		BaseInputMedia: BaseInputMedia{
+			Type:  "voice_note",
 			Media: media,
 		},
 	}
@@ -432,13 +464,13 @@ func NewInlineQueryResultPhoto(id, url string) InlineQueryResultPhoto {
 	}
 }
 
-// NewInlineQueryResultPhotoWithThumb creates a new inline query photo.
-func NewInlineQueryResultPhotoWithThumb(id, url, thumb string) InlineQueryResultPhoto {
+// NewInlineQueryResultPhotoWithThumbnail creates a new inline query photo.
+func NewInlineQueryResultPhotoWithThumbnail(id, url, thumbnail string) InlineQueryResultPhoto {
 	return InlineQueryResultPhoto{
-		Type:     "photo",
-		ID:       id,
-		URL:      url,
-		ThumbURL: thumb,
+		Type:         "photo",
+		ID:           id,
+		URL:          url,
+		ThumbnailURL: thumbnail,
 	}
 }
 
@@ -605,6 +637,71 @@ func NewEditMessageReplyMarkup(chatID int64, messageID int, replyMarkup InlineKe
 			ChatID:      chatID,
 			MessageID:   messageID,
 			ReplyMarkup: &replyMarkup,
+		},
+	}
+}
+
+// NewEditEphemeralMessageText allows you to edit the text of an ephemeral
+// message sent to receiverUserID in the given chat.
+func NewEditEphemeralMessageText(chatID, receiverUserID int64, ephemeralMessageID int, text string) EditEphemeralMessageTextConfig {
+	return EditEphemeralMessageTextConfig{
+		BaseEphemeralEdit: BaseEphemeralEdit{
+			ChatID:             chatID,
+			ReceiverUserID:     receiverUserID,
+			EphemeralMessageID: ephemeralMessageID,
+		},
+		Text: text,
+	}
+}
+
+// NewEditEphemeralMessageCaption allows you to edit the caption of an
+// ephemeral message sent to receiverUserID in the given chat.
+func NewEditEphemeralMessageCaption(chatID, receiverUserID int64, ephemeralMessageID int, caption string) EditEphemeralMessageCaptionConfig {
+	return EditEphemeralMessageCaptionConfig{
+		BaseEphemeralEdit: BaseEphemeralEdit{
+			ChatID:             chatID,
+			ReceiverUserID:     receiverUserID,
+			EphemeralMessageID: ephemeralMessageID,
+		},
+		Caption: caption,
+	}
+}
+
+// NewEditEphemeralMessageMedia allows you to edit the media of an ephemeral
+// message sent to receiverUserID in the given chat. A new file can't be
+// uploaded; use a previously uploaded file via its file_id, or specify a URL.
+func NewEditEphemeralMessageMedia(chatID, receiverUserID int64, ephemeralMessageID int, media interface{}) EditEphemeralMessageMediaConfig {
+	return EditEphemeralMessageMediaConfig{
+		BaseEphemeralEdit: BaseEphemeralEdit{
+			ChatID:             chatID,
+			ReceiverUserID:     receiverUserID,
+			EphemeralMessageID: ephemeralMessageID,
+		},
+		Media: media,
+	}
+}
+
+// NewEditEphemeralMessageReplyMarkup allows you to edit the reply markup of an
+// ephemeral message sent to receiverUserID in the given chat.
+func NewEditEphemeralMessageReplyMarkup(chatID, receiverUserID int64, ephemeralMessageID int, replyMarkup InlineKeyboardMarkup) EditEphemeralMessageReplyMarkupConfig {
+	return EditEphemeralMessageReplyMarkupConfig{
+		BaseEphemeralEdit: BaseEphemeralEdit{
+			ChatID:             chatID,
+			ReceiverUserID:     receiverUserID,
+			EphemeralMessageID: ephemeralMessageID,
+		},
+		ReplyMarkup: &replyMarkup,
+	}
+}
+
+// NewDeleteEphemeralMessage allows you to delete an ephemeral message sent to
+// receiverUserID in the given chat.
+func NewDeleteEphemeralMessage(chatID, receiverUserID int64, ephemeralMessageID int) DeleteEphemeralMessageConfig {
+	return DeleteEphemeralMessageConfig{
+		BaseEphemeralEdit: BaseEphemeralEdit{
+			ChatID:             chatID,
+			ReceiverUserID:     receiverUserID,
+			EphemeralMessageID: ephemeralMessageID,
 		},
 	}
 }
@@ -813,13 +910,20 @@ func NewDeleteChatPhoto(chatID int64) DeleteChatPhotoConfig {
 }
 
 // NewPoll allows you to create a new poll.
+//
+// Option texts are wrapped into InputPollOption values. To set custom_emoji
+// entities on options, build the SendPollConfig directly.
 func NewPoll(chatID int64, question string, options ...string) SendPollConfig {
+	opts := make([]InputPollOption, 0, len(options))
+	for _, text := range options {
+		opts = append(opts, InputPollOption{Text: text})
+	}
 	return SendPollConfig{
 		BaseChat: BaseChat{
 			ChatID: chatID,
 		},
 		Question:    question,
-		Options:     options,
+		Options:     opts,
 		IsAnonymous: true, // This is Telegram's default.
 	}
 }
@@ -984,4 +1088,13 @@ func ValidateWebAppData(token, telegramInitData string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// todo add comment
+func NewManagedBotLink(managerUsername, suggestedUsername, suggestedName string) string {
+	link := fmt.Sprintf("https://t.me/newbot/%s/%s", managerUsername, suggestedUsername)
+	if suggestedName != "" {
+		link += "?name=" + url.QueryEscape(suggestedName)
+	}
+	return link
 }

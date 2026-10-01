@@ -35,17 +35,21 @@ func (t testLogger) Printf(format string, v ...interface{}) {
 }
 
 func getBot(t *testing.T) (*BotAPI, error) {
-	bot, err := NewBotAPI(TestToken)
-	bot.Debug = true
-
-	logger := testLogger{t}
-	SetLogger(logger)
-
-	if err != nil {
-		t.Error(err)
+	token := os.Getenv("TELEGRAM_BOT_TOKEN")
+	if token == "" {
+		token = TestToken
 	}
 
-	return bot, err
+	bot, err := NewBotAPI(token)
+	if err != nil {
+		t.Skipf("skipping: NewBotAPI failed (set TELEGRAM_BOT_TOKEN to a real token to run): %v", err)
+		return nil, err
+	}
+
+	bot.Debug = true
+	SetLogger(testLogger{t})
+
+	return bot, nil
 }
 
 func TestNewBotAPI_notoken(t *testing.T) {
@@ -84,7 +88,7 @@ func TestSendWithMessageReply(t *testing.T) {
 	bot, _ := getBot(t)
 
 	msg := NewMessage(ChatID, "A test message from the test library in telegram-bot-api")
-	msg.ReplyToMessageID = ReplyToMessageID
+	msg.ReplyParameters = &ReplyParameters{MessageID: ReplyToMessageID}
 	_, err := bot.Send(msg)
 
 	if err != nil {
@@ -169,7 +173,7 @@ func TestSendWithNewPhotoReply(t *testing.T) {
 	bot, _ := getBot(t)
 
 	msg := NewPhoto(ChatID, FilePath("tests/image.jpg"))
-	msg.ReplyToMessageID = ReplyToMessageID
+	msg.ReplyParameters = &ReplyParameters{MessageID: ReplyToMessageID}
 
 	_, err := bot.Send(msg)
 
@@ -246,11 +250,11 @@ func TestSendWithNewDocument(t *testing.T) {
 	}
 }
 
-func TestSendWithNewDocumentAndThumb(t *testing.T) {
+func TestSendWithNewDocumentAndThumbnail(t *testing.T) {
 	bot, _ := getBot(t)
 
 	msg := NewDocument(ChatID, FilePath("tests/voice.ogg"))
-	msg.Thumb = FilePath("tests/image.jpg")
+	msg.Thumbnail = FilePath("tests/image.jpg")
 	_, err := bot.Send(msg)
 
 	if err != nil {
@@ -699,7 +703,7 @@ func ExampleNewBotAPI() {
 		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
 
 		msg := NewMessage(update.Message.Chat.ID, update.Message.Text)
-		msg.ReplyToMessageID = update.Message.MessageID
+		msg.ReplyParameters = &ReplyParameters{MessageID: update.Message.MessageID}
 
 		bot.Send(msg)
 	}
@@ -745,7 +749,7 @@ func ExampleNewWebhook() {
 	}
 }
 
-func ExampleWebhookHandler() {
+func ExampleNewWebhookWithCert() {
 	bot, err := NewBotAPI("MyAwesomeBotToken")
 	if err != nil {
 		panic(err)
