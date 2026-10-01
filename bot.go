@@ -311,7 +311,7 @@ func (bot *BotAPI) GetFileDirectURL(fileID string) (string, error) {
 		return "", err
 	}
 
-	return file.Link(bot.Token), nil
+	return bot.FileLink(file), nil
 }
 
 // GetMe fetches the currently authenticated bot.
@@ -639,7 +639,14 @@ func (bot *BotAPI) GetChatAdministrators(config ChatAdministratorsConfig) ([]Cha
 }
 
 // GetChatMembersCount gets the number of users in a chat.
+//
+// Deprecated: use GetChatMemberCount, which matches the Bot API method name.
 func (bot *BotAPI) GetChatMembersCount(config ChatMemberCountConfig) (int, error) {
+	return bot.GetChatMemberCount(config)
+}
+
+// GetChatMemberCount gets the number of members in a chat.
+func (bot *BotAPI) GetChatMemberCount(config ChatMemberCountConfig) (int, error) {
 	resp, err := bot.Request(config)
 	if err != nil {
 		return -1, err

@@ -147,3 +147,28 @@ func TestTransportErrorsDoNotLeakToken(t *testing.T) {
 		t.Fatalf("error leaks the token: %v", err)
 	}
 }
+
+func TestGetFileDirectURLUsesFileEndpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/getMe") {
+			io.WriteString(w, `{"ok":true,"result":{"id":1,"is_bot":true,"first_name":"Bot"}}`)
+			return
+		}
+		io.WriteString(w, `{"ok":true,"result":{"file_id":"f","file_unique_id":"u","file_path":"photos/1.jpg"}}`)
+	}))
+	defer srv.Close()
+
+	bot, err := NewBotAPIWithAPIEndpoint("TOKEN", srv.URL+"/bot%s/%s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.SetFileEndpoint("http://local-bot-api/file/bot%s/%s")
+
+	link, err := bot.GetFileDirectURL("f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if link != "http://local-bot-api/file/botTOKEN/photos/1.jpg" {
+		t.Fatalf("GetFileDirectURL() = %q", link)
+	}
+}
