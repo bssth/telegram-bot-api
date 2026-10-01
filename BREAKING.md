@@ -19,11 +19,13 @@ Bot API itself changed.
 import tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 // After
-import tgbotapi "github.com/bssth/telegram-bot-api/v5"
+import tgbotapi "github.com/bssth/telegram-bot-api/v6"
 ```
 
-The package name is still `tgbotapi`. See the README for a one-line `sed`
-command that rewrites the imports.
+Both the owner and the major version change: the fork is published as `/v6`
+because it is not source-compatible with upstream v5. The package name is
+still `tgbotapi`. See the README for a one-line `sed` command that rewrites
+the imports.
 
 ---
 

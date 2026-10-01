@@ -1,9 +1,10 @@
 # Change Log
 
-## Unreleased
+## v6.0.0 (unreleased)
 
-- Module path is now `github.com/bssth/telegram-bot-api/v5`; the upstream
-  repository is no longer maintained.
+- Module path is now `github.com/bssth/telegram-bot-api/v6`: the upstream
+  repository is no longer maintained, and the new major version reflects
+  the source-incompatible changes listed in BREAKING.md.
 - Support every Bot API version from 6.1 to 10.3, based on the unmerged
   upstream pull request
   [#794](https://github.com/go-telegram-bot-api/telegram-bot-api/pull/794).
