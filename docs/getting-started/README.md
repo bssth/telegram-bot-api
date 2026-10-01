@@ -10,7 +10,7 @@ approaches to solve common problems.
 ## Installing
 
 ```bash
-go get github.com/bssth/telegram-bot-api/v5
+go get github.com/bssth/telegram-bot-api/v6
 ```
 
 ## A Simple Bot
@@ -22,7 +22,7 @@ messages repeating what you said. Make sure you get an API token from
 Let's start by constructing a new [BotAPI][bot-api-docs].
 
 [botfather]: https://t.me/Botfather
-[bot-api-docs]: https://pkg.go.dev/github.com/bssth/telegram-bot-api/v5?tab=doc#BotAPI
+[bot-api-docs]: https://pkg.go.dev/github.com/bssth/telegram-bot-api/v6?tab=doc#BotAPI
 
 ```go
 package main
@@ -30,7 +30,7 @@ package main
 import (
 	"os"
 
-	tgbotapi "github.com/bssth/telegram-bot-api/v5"
+	tgbotapi "github.com/bssth/telegram-bot-api/v6"
 )
 
 func main() {

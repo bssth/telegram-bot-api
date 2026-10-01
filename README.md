@@ -1,6 +1,6 @@
 # Golang bindings for the Telegram Bot API
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/bssth/telegram-bot-api/v5.svg)](https://pkg.go.dev/github.com/bssth/telegram-bot-api/v5)
+[![Go Reference](https://pkg.go.dev/badge/github.com/bssth/telegram-bot-api/v6.svg)](https://pkg.go.dev/github.com/bssth/telegram-bot-api/v6)
 [![Test](https://github.com/bssth/telegram-bot-api/actions/workflows/test.yml/badge.svg)](https://github.com/bssth/telegram-bot-api/actions/workflows/test.yml)
 [![Bot API](https://img.shields.io/badge/Bot%20API-10.3-blue.svg)](https://core.telegram.org/bots/api-changelog)
 
@@ -11,7 +11,7 @@
 > follows the [official changelog](https://core.telegram.org/bots/api-changelog).
 
 All methods are fairly self-explanatory, and reading the
-[godoc](https://pkg.go.dev/github.com/bssth/telegram-bot-api/v5) page should
+[godoc](https://pkg.go.dev/github.com/bssth/telegram-bot-api/v6) page should
 explain everything. If something isn't clear, open an
 [issue](https://github.com/bssth/telegram-bot-api/issues) or submit a pull
 request.
@@ -26,14 +26,18 @@ directory.
 ## Installing
 
 ```sh
-go get github.com/bssth/telegram-bot-api/v5@latest
+go get github.com/bssth/telegram-bot-api/v6@latest
 ```
 
 ```go
-import tgbotapi "github.com/bssth/telegram-bot-api/v5"
+import tgbotapi "github.com/bssth/telegram-bot-api/v6"
 ```
 
 Go 1.24 or newer is required.
+
+The major version is **v6**: the API is not source-compatible with upstream
+v5 (see below), so the fork starts a new major version instead of breaking
+code that pins `/v5`.
 
 ## Migrating from `go-telegram-bot-api/telegram-bot-api`
 
@@ -42,8 +46,8 @@ Go 1.24 or newer is required.
 
    ```sh
    grep -rl 'github.com/go-telegram-bot-api/telegram-bot-api/v5' --include='*.go' . \
-     | xargs sed -i 's#github.com/go-telegram-bot-api/telegram-bot-api/v5#github.com/bssth/telegram-bot-api/v5#g'
-   go get github.com/bssth/telegram-bot-api/v5@latest
+     | xargs sed -i 's#github.com/go-telegram-bot-api/telegram-bot-api/v5#github.com/bssth/telegram-bot-api/v6#g'
+   go get github.com/bssth/telegram-bot-api/v6@latest
    go mod tidy
    ```
 
@@ -73,7 +77,7 @@ package main
 import (
 	"log"
 
-	tgbotapi "github.com/bssth/telegram-bot-api/v5"
+	tgbotapi "github.com/bssth/telegram-bot-api/v6"
 )
 
 func main() {
@@ -115,7 +119,7 @@ import (
 	"log"
 	"net/http"
 
-	tgbotapi "github.com/bssth/telegram-bot-api/v5"
+	tgbotapi "github.com/bssth/telegram-bot-api/v6"
 )
 
 func main() {
