@@ -265,6 +265,58 @@ func NewInputMediaDocument(media RequestFileData) InputMediaDocument {
 	}
 }
 
+// NewInputMediaLivePhoto creates a new InputMediaLivePhoto. Media is the
+// live photo video and photo is its static image.
+func NewInputMediaLivePhoto(media, photo RequestFileData) InputMediaLivePhoto {
+	return InputMediaLivePhoto{
+		BaseInputMedia: BaseInputMedia{
+			Type:  "live_photo",
+			Media: media,
+		},
+		Photo: photo,
+	}
+}
+
+// NewInputMediaSticker creates a new InputMediaSticker, which can be used as
+// the media of a poll option.
+func NewInputMediaSticker(media RequestFileData) InputMediaSticker {
+	return InputMediaSticker{
+		Type:  "sticker",
+		Media: media,
+	}
+}
+
+// NewInputMediaLocation creates a new InputMediaLocation, which can be used
+// as the media of a poll or a poll option.
+func NewInputMediaLocation(latitude, longitude float64) InputMediaLocation {
+	return InputMediaLocation{
+		Type:      "location",
+		Latitude:  latitude,
+		Longitude: longitude,
+	}
+}
+
+// NewInputMediaVenue creates a new InputMediaVenue, which can be used as the
+// media of a poll or a poll option.
+func NewInputMediaVenue(latitude, longitude float64, title, address string) InputMediaVenue {
+	return InputMediaVenue{
+		Type:      "venue",
+		Latitude:  latitude,
+		Longitude: longitude,
+		Title:     title,
+		Address:   address,
+	}
+}
+
+// NewInputMediaLink creates a new InputMediaLink, which can be used as the
+// media of a poll option.
+func NewInputMediaLink(url string) InputMediaLink {
+	return InputMediaLink{
+		Type: "link",
+		URL:  url,
+	}
+}
+
 // NewContact allows you to send a shared contact.
 func NewContact(chatID int64, phoneNumber, firstName string) ContactConfig {
 	return ContactConfig{
@@ -626,6 +678,19 @@ func NewEditMessageCaption(chatID int64, messageID int, caption string) EditMess
 			MessageID: messageID,
 		},
 		Caption: caption,
+	}
+}
+
+// NewEditMessageMedia allows you to replace the media of a message. Media
+// must be one of InputMediaAnimation, InputMediaAudio, InputMediaDocument,
+// InputMediaLivePhoto, InputMediaPhoto or InputMediaVideo.
+func NewEditMessageMedia(chatID int64, messageID int, media interface{}) EditMessageMediaConfig {
+	return EditMessageMediaConfig{
+		BaseEdit: BaseEdit{
+			ChatID:    chatID,
+			MessageID: messageID,
+		},
+		Media: media,
 	}
 }
 

@@ -127,6 +127,15 @@ const (
 	// this update in the list of allowed_updates to receive these updates.
 	UpdateTypeChatMember = "chat_member"
 
+	// UpdateTypeChatJoinRequest is when a request to join the chat has been sent.
+	// The bot must have the can_invite_users administrator right in the chat to
+	// receive these updates.
+	UpdateTypeChatJoinRequest = "chat_join_request"
+
+	// UpdateTypeGuestMessage is a new guest message. The bot can use
+	// Message.GuestQueryID and the answerGuestQuery method to reply to it.
+	UpdateTypeGuestMessage = "guest_message"
+
 	// UpdateTypeManagedBot is when a new bot was created to be managed by the bot,
 	// or token or owner of a managed bot was changed.
 	UpdateTypeManagedBot = "managed_bot"
@@ -321,6 +330,11 @@ type BaseChat struct {
 	ReplyParameters       *ReplyParameters
 	ReplyMarkup           interface{}
 	DisableNotification   bool
+	// SuggestedPostParameters contains the parameters of the suggested post
+	// to send; for direct messages chats only. If the message is sent as a
+	// reply to another suggested post, then that suggested post is
+	// automatically declined.
+	SuggestedPostParameters *SuggestedPostParameters
 }
 
 func (chat *BaseChat) params() (Params, error) {
@@ -338,6 +352,9 @@ func (chat *BaseChat) params() (Params, error) {
 	params.AddBool("allow_paid_broadcast", chat.AllowPaidBroadcast)
 
 	if err := params.AddAny("reply_parameters", chat.ReplyParameters); err != nil {
+		return params, err
+	}
+	if err := params.AddAny("suggested_post_parameters", chat.SuggestedPostParameters); err != nil {
 		return params, err
 	}
 	err := params.AddAny("reply_markup", chat.ReplyMarkup)
@@ -641,6 +658,9 @@ func (config DocumentConfig) params() (Params, error) {
 	params.AddNonEmpty("caption", config.Caption)
 	params.AddNonEmpty("parse_mode", config.ParseMode)
 	params.AddBool("disable_content_type_detection", config.DisableContentTypeDetection)
+	if err = params.AddAny("caption_entities", config.CaptionEntities); err != nil {
+		return params, err
+	}
 
 	err = config.EphemeralSendParams.addTo(params)
 
@@ -707,6 +727,8 @@ type VideoConfig struct {
 	Cover                 RequestFileData
 	StartTimestamp        int
 	Duration              int
+	Width                 int
+	Height                int
 	Caption               string
 	ParseMode             string
 	CaptionEntities       []MessageEntity
@@ -722,6 +744,8 @@ func (config VideoConfig) params() (Params, error) {
 	}
 
 	params.AddNonZero("duration", config.Duration)
+	params.AddNonZero("width", config.Width)
+	params.AddNonZero("height", config.Height)
 	params.AddNonZero("start_timestamp", config.StartTimestamp)
 	params.AddNonEmpty("caption", config.Caption)
 	params.AddNonEmpty("parse_mode", config.ParseMode)
@@ -822,6 +846,8 @@ type AnimationConfig struct {
 	BaseFile
 	EphemeralSendParams
 	Duration              int
+	Width                 int
+	Height                int
 	Thumbnail             RequestFileData
 	Caption               string
 	ParseMode             string
@@ -837,6 +863,8 @@ func (config AnimationConfig) params() (Params, error) {
 	}
 
 	params.AddNonZero("duration", config.Duration)
+	params.AddNonZero("width", config.Width)
+	params.AddNonZero("height", config.Height)
 	params.AddNonEmpty("caption", config.Caption)
 	params.AddNonEmpty("parse_mode", config.ParseMode)
 	params.AddBool("show_caption_above_media", config.ShowCaptionAboveMedia)
@@ -1139,11 +1167,32 @@ type SendPollConfig struct {
 	IsClosed               bool
 }
 
+// prepareMedia returns copies of the poll's media, explanation media and
+// options in which files that need uploading are replaced by attach://
+// references, together with the files to upload.
+func (config SendPollConfig) prepareMedia() (media, explanationMedia any, options []InputPollOption, files []RequestFile) {
+	u := nestedMediaUploader{prefix: "poll-media"}
+
+	media = u.media(config.Media)
+	if config.Options != nil {
+		options = make([]InputPollOption, len(config.Options))
+		for i, option := range config.Options {
+			option.Media = u.media(option.Media)
+			options[i] = option
+		}
+	}
+	explanationMedia = u.media(config.ExplanationMedia)
+
+	return media, explanationMedia, options, u.files
+}
+
 func (config SendPollConfig) params() (Params, error) {
 	params, err := config.BaseChat.params()
 	if err != nil {
 		return params, err
 	}
+
+	media, explanationMedia, options, _ := config.prepareMedia()
 
 	params["question"] = config.Question
 	params.AddNonEmpty("question_parse_mode", config.QuestionParseMode)
@@ -1155,10 +1204,10 @@ func (config SendPollConfig) params() (Params, error) {
 	if err = params.AddAny("description_entities", config.DescriptionEntities); err != nil {
 		return params, err
 	}
-	if err = params.AddAny("media", config.Media); err != nil {
+	if err = params.AddAny("media", media); err != nil {
 		return params, err
 	}
-	if err = params.AddAny("options", config.Options); err != nil {
+	if err = params.AddAny("options", options); err != nil {
 		return params, err
 	}
 	params["is_anonymous"] = strconv.FormatBool(config.IsAnonymous)
@@ -1187,13 +1236,18 @@ func (config SendPollConfig) params() (Params, error) {
 	if err = params.AddAny("explanation_entities", config.ExplanationEntities); err != nil {
 		return params, err
 	}
-	err = params.AddAny("explanation_media", config.ExplanationMedia)
+	err = params.AddAny("explanation_media", explanationMedia)
 
 	return params, err
 }
 
 func (SendPollConfig) method() string {
 	return "sendPoll"
+}
+
+func (config SendPollConfig) files() []RequestFile {
+	_, _, _, files := config.prepareMedia()
+	return files
 }
 
 // GameConfig allows you to send a game.
@@ -1230,7 +1284,8 @@ func (config SetGameScoreConfig) params() (Params, error) {
 	params := make(Params)
 
 	params.AddNonZero64("user_id", config.UserID)
-	params.AddNonZero("score", config.Score)
+	params["score"] = strconv.Itoa(config.Score)
+	params.AddBool("force", config.Force)
 	params.AddBool("disable_edit_message", config.DisableEditMessage)
 
 	if config.InlineMessageID != "" {
@@ -1315,21 +1370,33 @@ func (config EditMessageTextConfig) params() (Params, error) {
 		return params, err
 	}
 
-	params["text"] = config.Text
+	// text stays present when RichMessage is not set; an empty string is
+	// rejected by the API rather than silently dropped.
+	if config.RichMessage == nil {
+		params["text"] = config.Text
+	} else {
+		params.AddNonEmpty("text", config.Text)
+		richMessage, _ := prepareRichMessage(config.RichMessage)
+		if err = params.AddAny("rich_message", richMessage); err != nil {
+			return params, err
+		}
+	}
 	params.AddNonEmpty("parse_mode", config.ParseMode)
 	if err = params.AddAny("link_preview_options", config.LinkPreviewOptions); err != nil {
 		return params, err
 	}
-	if err = params.AddAny("entities", config.Entities); err != nil {
-		return params, err
-	}
-	err = params.AddAny("rich_message", config.RichMessage)
+	err = params.AddAny("entities", config.Entities)
 
 	return params, err
 }
 
 func (config EditMessageTextConfig) method() string {
 	return "editMessageText"
+}
+
+func (config EditMessageTextConfig) files() []RequestFile {
+	_, files := prepareRichMessage(config.RichMessage)
+	return files
 }
 
 // EditMessageCaptionConfig allows you to modify the caption of a message.
@@ -1464,7 +1531,8 @@ func (config EditEphemeralMessageTextConfig) params() (Params, error) {
 		params["text"] = config.Text
 	} else {
 		params.AddNonEmpty("text", config.Text)
-		if err = params.AddAny("rich_message", config.RichMessage); err != nil {
+		richMessage, _ := prepareRichMessage(config.RichMessage)
+		if err = params.AddAny("rich_message", richMessage); err != nil {
 			return params, err
 		}
 	}
@@ -1482,6 +1550,11 @@ func (config EditEphemeralMessageTextConfig) params() (Params, error) {
 
 func (config EditEphemeralMessageTextConfig) method() string {
 	return "editEphemeralMessageText"
+}
+
+func (config EditEphemeralMessageTextConfig) files() []RequestFile {
+	_, files := prepareRichMessage(config.RichMessage)
+	return files
 }
 
 // EditEphemeralMessageMediaConfig allows you to edit the media of an ephemeral
@@ -2007,7 +2080,10 @@ type BanChatSenderChatConfig struct {
 	ChatID          int64
 	ChannelUsername string
 	SenderChatID    int64
-	UntilDate       int
+	// Deprecated: banChatSenderChat no longer accepts until_date; sender chats
+	// are banned until they are explicitly unbanned. The value is ignored by
+	// Telegram.
+	UntilDate int
 }
 
 func (config BanChatSenderChatConfig) method() string {
@@ -2081,7 +2157,7 @@ type ChatMemberCountConfig struct {
 }
 
 func (ChatMemberCountConfig) method() string {
-	return "getChatMembersCount"
+	return "getChatMemberCount"
 }
 
 // ChatAdministratorsConfig contains information about getting chat administrators.
@@ -3748,6 +3824,10 @@ type SetStickerSetThumbnailConfig struct {
 	Name      string
 	UserID    int64
 	Thumbnail RequestFileData
+	// Format of the thumbnail, must be one of StickerFormatStatic for a .WEBP
+	// or .PNG image, StickerFormatAnimated for a .TGS animation, or
+	// StickerFormatVideo for a .WEBM video.
+	Format string
 }
 
 func (config SetStickerSetThumbnailConfig) method() string {
@@ -3759,11 +3839,16 @@ func (config SetStickerSetThumbnailConfig) params() (Params, error) {
 
 	params["name"] = config.Name
 	params.AddNonZero64("user_id", config.UserID)
+	params.AddNonEmpty("format", config.Format)
 
 	return params, nil
 }
 
 func (config SetStickerSetThumbnailConfig) files() []RequestFile {
+	if config.Thumbnail == nil {
+		return nil
+	}
+
 	return []RequestFile{{
 		Name: "thumbnail",
 		Data: config.Thumbnail,
@@ -4920,9 +5005,15 @@ func (config SendMessageDraftConfig) params() (Params, error) {
 
 // GetUserGiftsConfig returns the list of gifts received and owned by a user.
 type GetUserGiftsConfig struct {
-	UserID int64
-	Offset string
-	Limit  int
+	UserID                      int64
+	ExcludeUnlimited            bool
+	ExcludeLimitedUpgradable    bool
+	ExcludeLimitedNonUpgradable bool
+	ExcludeFromBlockchain       bool
+	ExcludeUnique               bool
+	SortByPrice                 bool
+	Offset                      string
+	Limit                       int
 }
 
 func (GetUserGiftsConfig) method() string {
@@ -4933,6 +5024,12 @@ func (config GetUserGiftsConfig) params() (Params, error) {
 	params := make(Params)
 
 	params.AddNonZero64("user_id", config.UserID)
+	params.AddBool("exclude_unlimited", config.ExcludeUnlimited)
+	params.AddBool("exclude_limited_upgradable", config.ExcludeLimitedUpgradable)
+	params.AddBool("exclude_limited_non_upgradable", config.ExcludeLimitedNonUpgradable)
+	params.AddBool("exclude_from_blockchain", config.ExcludeFromBlockchain)
+	params.AddBool("exclude_unique", config.ExcludeUnique)
+	params.AddBool("sort_by_price", config.SortByPrice)
 	params.AddNonEmpty("offset", config.Offset)
 	params.AddNonZero("limit", config.Limit)
 
@@ -4945,10 +5042,18 @@ func (config GetUserGiftsConfig) params() (Params, error) {
 // ChannelUsername ("@channelusername"); the first non-zero / non-empty
 // value is used.
 type GetChatGiftsConfig struct {
-	ChatID          int64
-	ChannelUsername string
-	Offset          string
-	Limit           int
+	ChatID                      int64
+	ChannelUsername             string
+	ExcludeUnsaved              bool
+	ExcludeSaved                bool
+	ExcludeUnlimited            bool
+	ExcludeLimitedUpgradable    bool
+	ExcludeLimitedNonUpgradable bool
+	ExcludeFromBlockchain       bool
+	ExcludeUnique               bool
+	SortByPrice                 bool
+	Offset                      string
+	Limit                       int
 }
 
 func (GetChatGiftsConfig) method() string {
@@ -4961,24 +5066,39 @@ func (config GetChatGiftsConfig) params() (Params, error) {
 	if err := params.AddFirstValid("chat_id", config.ChatID, config.ChannelUsername); err != nil {
 		return params, err
 	}
+	params.AddBool("exclude_unsaved", config.ExcludeUnsaved)
+	params.AddBool("exclude_saved", config.ExcludeSaved)
+	params.AddBool("exclude_unlimited", config.ExcludeUnlimited)
+	params.AddBool("exclude_limited_upgradable", config.ExcludeLimitedUpgradable)
+	params.AddBool("exclude_limited_non_upgradable", config.ExcludeLimitedNonUpgradable)
+	params.AddBool("exclude_from_blockchain", config.ExcludeFromBlockchain)
+	params.AddBool("exclude_unique", config.ExcludeUnique)
+	params.AddBool("sort_by_price", config.SortByPrice)
 	params.AddNonEmpty("offset", config.Offset)
 	params.AddNonZero("limit", config.Limit)
 
 	return params, nil
 }
 
-// RepostStoryConfig reposts a story across different business accounts
-// managed by the bot.
+// RepostStoryConfig reposts a story on behalf of a business account from
+// another business account. Both business accounts must be managed by the
+// same bot, and the story on the source account must have been posted (or
+// reposted) by the bot. Requires the can_manage_stories business bot right
+// for both business accounts.
 type RepostStoryConfig struct {
 	BusinessConnectionID string
-	FromChatID           int64
-	StoryID              int
-	Caption              string
-	ParseMode            string
-	CaptionEntities      []MessageEntity
-	Areas                []StoryArea
-	PostToChatPage       bool
-	ProtectContent       bool
+	// FromChatID is the unique identifier of the chat which posted the story
+	// that should be reposted.
+	FromChatID int64
+	// FromStoryID is the unique identifier of the story that should be
+	// reposted.
+	FromStoryID int
+	// ActivePeriod is the period after which the story is moved to the
+	// archive, in seconds; must be one of 6 * 3600, 12 * 3600, 86400, or
+	// 2 * 86400.
+	ActivePeriod   int
+	PostToChatPage bool
+	ProtectContent bool
 }
 
 func (RepostStoryConfig) method() string {
@@ -4990,17 +5110,12 @@ func (config RepostStoryConfig) params() (Params, error) {
 
 	params["business_connection_id"] = config.BusinessConnectionID
 	params.AddNonZero64("from_chat_id", config.FromChatID)
-	params.AddNonZero("story_id", config.StoryID)
-	params.AddNonEmpty("caption", config.Caption)
-	params.AddNonEmpty("parse_mode", config.ParseMode)
+	params.AddNonZero("from_story_id", config.FromStoryID)
+	params.AddNonZero("active_period", config.ActivePeriod)
 	params.AddBool("post_to_chat_page", config.PostToChatPage)
 	params.AddBool("protect_content", config.ProtectContent)
-	if err := params.AddAny("caption_entities", config.CaptionEntities); err != nil {
-		return params, err
-	}
-	err := params.AddAny("areas", config.Areas)
 
-	return params, err
+	return params, nil
 }
 
 // DeleteStoryConfig deletes a story previously posted by the bot on behalf
@@ -5510,9 +5625,6 @@ type SendRichMessageConfig struct {
 	EphemeralSendParams
 	// RichMessage is the message to be sent.
 	RichMessage *InputRichMessage
-	// SuggestedPostParameters contains the parameters of the suggested post
-	// to send; for direct messages chats only.
-	SuggestedPostParameters *SuggestedPostParameters
 }
 
 func (config SendRichMessageConfig) params() (Params, error) {
@@ -5521,10 +5633,8 @@ func (config SendRichMessageConfig) params() (Params, error) {
 		return params, err
 	}
 
-	if err = params.AddAny("rich_message", config.RichMessage); err != nil {
-		return params, err
-	}
-	if err = params.AddAny("suggested_post_parameters", config.SuggestedPostParameters); err != nil {
+	richMessage, _ := prepareRichMessage(config.RichMessage)
+	if err = params.AddAny("rich_message", richMessage); err != nil {
 		return params, err
 	}
 	err = config.EphemeralSendParams.addTo(params)
@@ -5534,6 +5644,11 @@ func (config SendRichMessageConfig) params() (Params, error) {
 
 func (config SendRichMessageConfig) method() string {
 	return "sendRichMessage"
+}
+
+func (config SendRichMessageConfig) files() []RequestFile {
+	_, files := prepareRichMessage(config.RichMessage)
+	return files
 }
 
 // SendRichMessageDraftConfig streams a partial rich message to a user while
@@ -5570,13 +5685,19 @@ func (config SendRichMessageDraftConfig) params() (Params, error) {
 	params.AddNonZero("draft_id", config.DraftID)
 	params.AddBool("can_stop", config.CanStop)
 	params.AddBool("keep_on_stop", config.KeepOnStop)
-	err := params.AddAny("rich_message", config.RichMessage)
+	richMessage, _ := prepareRichMessage(config.RichMessage)
+	err := params.AddAny("rich_message", richMessage)
 
 	return params, err
 }
 
 func (config SendRichMessageDraftConfig) method() string {
 	return "sendRichMessageDraft"
+}
+
+func (config SendRichMessageDraftConfig) files() []RequestFile {
+	_, files := prepareRichMessage(config.RichMessage)
+	return files
 }
 
 // Result values for AnswerChatJoinRequestQueryConfig.
@@ -5637,4 +5758,36 @@ func (config SendChatJoinRequestWebAppConfig) params() (Params, error) {
 
 func (config SendChatJoinRequestWebAppConfig) method() string {
 	return "sendChatJoinRequestWebApp"
+}
+
+// SetPassportDataErrorsConfig informs a user that some of the Telegram
+// Passport elements they provided contains errors. The user will not be able
+// to re-submit their Passport to you until the errors are fixed (the contents
+// of the field for which you returned the error must change).
+//
+// Errors must hold PassportElementError* values, for example
+// PassportElementErrorDataField or PassportElementErrorUnspecified.
+type SetPassportDataErrorsConfig struct {
+	// UserID is the user identifier.
+	UserID int64
+	// Errors is the list of errors describing what is wrong with the
+	// submitted Passport data.
+	Errors []PassportElementError
+}
+
+func (config SetPassportDataErrorsConfig) method() string {
+	return "setPassportDataErrors"
+}
+
+func (config SetPassportDataErrorsConfig) params() (Params, error) {
+	params := make(Params)
+
+	params.AddNonZero64("user_id", config.UserID)
+	if config.Errors == nil {
+		params["errors"] = "[]"
+		return params, nil
+	}
+	err := params.AddAny("errors", config.Errors)
+
+	return params, err
 }

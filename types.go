@@ -201,6 +201,20 @@ func (u *Update) SentFrom() *User {
 		return u.Message.From
 	case u.EditedMessage != nil:
 		return u.EditedMessage.From
+	case u.ChannelPost != nil:
+		return u.ChannelPost.From
+	case u.EditedChannelPost != nil:
+		return u.EditedChannelPost.From
+	case u.BusinessConnection != nil:
+		return &u.BusinessConnection.User
+	case u.BusinessMessage != nil:
+		return u.BusinessMessage.From
+	case u.EditedBusinessMessage != nil:
+		return u.EditedBusinessMessage.From
+	case u.GuestMessage != nil:
+		return u.GuestMessage.From
+	case u.MessageReaction != nil:
+		return u.MessageReaction.User
 	case u.InlineQuery != nil:
 		return u.InlineQuery.From
 	case u.ChosenInlineResult != nil:
@@ -211,6 +225,19 @@ func (u *Update) SentFrom() *User {
 		return u.ShippingQuery.From
 	case u.PreCheckoutQuery != nil:
 		return u.PreCheckoutQuery.From
+	case u.PurchasedPaidMedia != nil:
+		return &u.PurchasedPaidMedia.From
+	case u.PollAnswer != nil:
+		if u.PollAnswer.VoterChat != nil {
+			return nil
+		}
+		return &u.PollAnswer.User
+	case u.MyChatMember != nil:
+		return &u.MyChatMember.From
+	case u.ChatMember != nil:
+		return &u.ChatMember.From
+	case u.ChatJoinRequest != nil:
+		return &u.ChatJoinRequest.From
 	case u.ManagedBot != nil:
 		return &u.ManagedBot.User
 	case u.Subscription != nil:
@@ -239,8 +266,38 @@ func (u *Update) FromChat() *Chat {
 		return u.ChannelPost.Chat
 	case u.EditedChannelPost != nil:
 		return u.EditedChannelPost.Chat
+	case u.BusinessMessage != nil:
+		return u.BusinessMessage.Chat
+	case u.EditedBusinessMessage != nil:
+		return u.EditedBusinessMessage.Chat
+	case u.DeletedBusinessMessages != nil:
+		return &u.DeletedBusinessMessages.Chat
+	case u.GuestMessage != nil:
+		return u.GuestMessage.Chat
+	case u.MessageReaction != nil:
+		return &u.MessageReaction.Chat
+	case u.MessageReactionCount != nil:
+		return &u.MessageReactionCount.Chat
 	case u.CallbackQuery != nil:
+		if u.CallbackQuery.Message == nil {
+			// Callback queries from inline messages carry no message.
+			return nil
+		}
 		return u.CallbackQuery.Message.Chat
+	case u.PollAnswer != nil:
+		return u.PollAnswer.VoterChat
+	case u.MyChatMember != nil:
+		return &u.MyChatMember.Chat
+	case u.ChatMember != nil:
+		return &u.ChatMember.Chat
+	case u.ChatJoinRequest != nil:
+		return &u.ChatJoinRequest.Chat
+	case u.ChatBoost != nil:
+		return &u.ChatBoost.Chat
+	case u.RemovedChatBoost != nil:
+		return &u.RemovedChatBoost.Chat
+	case u.StoppedMessageGeneration != nil:
+		return &u.StoppedMessageGeneration.Chat
 	default:
 		return nil
 	}
@@ -387,187 +444,6 @@ type Chat struct {
 	//
 	// optional
 	IsDirectMessages bool `json:"is_direct_messages,omitempty"`
-	// ActiveUsernames is a list of all active chat usernames; for private chats,
-	// supergroups and channels. Returned only in getChat.
-	//
-	// optional
-	ActiveUsernames []string `json:"active_usernames,omitempty"`
-	// EmojiStatusCustomEmojiID is the custom emoji identifier of emoji status of
-	// the other party in a private chat. Returned only in getChat.
-	//
-	// optional
-	EmojiStatusCustomEmojiID string `json:"emoji_status_custom_emoji_id,omitempty"`
-	// EmojiStatusExpirationDate is the expiration date of the emoji status of
-	// the other party in a private chat in Unix time, if any. Returned only in
-	// getChat.
-	//
-	// optional
-	EmojiStatusExpirationDate int64 `json:"emoji_status_expiration_date,omitempty"`
-	// AccentColorID is the identifier of the accent color for the chat name
-	// and backgrounds of the chat photo, reply header, and link preview.
-	// Returned only in getChat.
-	//
-	// optional
-	AccentColorID int `json:"accent_color_id,omitempty"`
-	// BackgroundCustomEmojiID is the custom emoji identifier of the emoji
-	// chosen by the chat for the reply header and link preview background.
-	// Returned only in getChat.
-	//
-	// optional
-	BackgroundCustomEmojiID string `json:"background_custom_emoji_id,omitempty"`
-	// ProfileAccentColorID is the identifier of the accent color for the
-	// chat's profile background. Returned only in getChat.
-	//
-	// optional
-	ProfileAccentColorID int `json:"profile_accent_color_id,omitempty"`
-	// ProfileBackgroundCustomEmojiID is the custom emoji identifier of the
-	// emoji chosen by the chat for its profile background. Returned only in
-	// getChat.
-	//
-	// optional
-	ProfileBackgroundCustomEmojiID string `json:"profile_background_custom_emoji_id,omitempty"`
-	// HasVisibleHistory is true, if new chat members will have access to old
-	// messages; available only to chat administrators. Returned only in getChat.
-	//
-	// optional
-	HasVisibleHistory bool `json:"has_visible_history,omitempty"`
-	// HasHiddenMembers is true, if non-administrators can only see bots and
-	// administrators in the chat. Returned only in getChat.
-	//
-	// optional
-	HasHiddenMembers bool `json:"has_hidden_members,omitempty"`
-	// HasAggressiveAntiSpamEnabled is true, if aggressive anti-spam checks are
-	// enabled in the supergroup. Visible only to chat administrators. Returned
-	// only in getChat.
-	//
-	// optional
-	HasAggressiveAntiSpamEnabled bool `json:"has_aggressive_anti_spam_enabled,omitempty"`
-	// UnrestrictBoostCount is the minimum number of boosts that a non-administrator
-	// user needs to add to the chat in order to ignore slow mode and chat
-	// permissions. Returned only in getChat.
-	//
-	// optional
-	UnrestrictBoostCount int `json:"unrestrict_boost_count,omitempty"`
-	// CustomEmojiStickerSetName is the name of the chat's custom emoji sticker
-	// set. Returned only in getChat.
-	//
-	// optional
-	CustomEmojiStickerSetName string `json:"custom_emoji_sticker_set_name,omitempty"`
-	// Birthdate of the other party in a private chat. Returned only in getChat.
-	//
-	// optional
-	Birthdate *Birthdate `json:"birthdate,omitempty"`
-	// BusinessIntro is the intro of the business account. Returned only in
-	// getChat for business accounts.
-	//
-	// optional
-	BusinessIntro *BusinessIntro `json:"business_intro,omitempty"`
-	// BusinessLocation is the location of the business account. Returned only
-	// in getChat for business accounts.
-	//
-	// optional
-	BusinessLocation *BusinessLocation `json:"business_location,omitempty"`
-	// BusinessOpeningHours is the opening hours of the business account.
-	// Returned only in getChat for business accounts.
-	//
-	// optional
-	BusinessOpeningHours *BusinessOpeningHours `json:"business_opening_hours,omitempty"`
-	// PersonalChat is the personal channel of the private chat's user.
-	// Returned only in getChat for private chats.
-	//
-	// optional
-	PersonalChat *Chat `json:"personal_chat,omitempty"`
-	// Photo is a chat photo
-	Photo *ChatPhoto `json:"photo"`
-	// Bio is the bio of the other party in a private chat. Returned only in
-	// getChat
-	//
-	// optional
-	Bio string `json:"bio,omitempty"`
-	// HasPrivateForwards is true if privacy settings of the other party in the
-	// private chat allows to use tg://user?id=<user_id> links only in chats
-	// with the user. Returned only in getChat.
-	//
-	// optional
-	HasPrivateForwards bool `json:"has_private_forwards,omitempty"`
-	// HasRestrictedVoiceAndVideoMessages is true, if the privacy settings of the
-	// other party restrict sending voice and video note messages in the private
-	// chat. Returned only in getChat.
-	//
-	// optional
-	HasRestrictedVoiceAndVideoMessages bool `json:"has_restricted_voice_and_video_messages,omitempty"`
-	// Description for groups, supergroups and channel chats
-	//
-	// optional
-	Description string `json:"description,omitempty"`
-	// JoinToSendMessages is true, if users need to join the supergroup before
-	// they can send messages. Returned only in getChat.
-	//
-	// optional
-	JoinToSendMessages bool `json:"join_to_send_messages,omitempty"`
-	// JoinByRequest is true, if all users directly joining the supergroup need
-	// to be approved by supergroup administrators. Returned only in getChat.
-	//
-	// optional
-	JoinByRequest bool `json:"join_by_request,omitempty"`
-	// InviteLink is a chat invite link, for groups, supergroups and channel chats.
-	// Each administrator in a chat generates their own invite links,
-	// so the bot must first generate the link using exportChatInviteLink
-	//
-	// optional
-	InviteLink string `json:"invite_link,omitempty"`
-	// PinnedMessage is the pinned message, for groups, supergroups and channels
-	//
-	// optional
-	PinnedMessage *Message `json:"pinned_message,omitempty"`
-	// AvailableReactions is the list of available reactions allowed in the
-	// chat. If omitted, then all emoji reactions are allowed. Returned only
-	// in getChat.
-	//
-	// optional
-	AvailableReactions []ReactionType `json:"available_reactions,omitempty"`
-	// Permissions are default chat member permissions, for groups and
-	// supergroups. Returned only in getChat.
-	//
-	// optional
-	Permissions *ChatPermissions `json:"permissions,omitempty"`
-	// SlowModeDelay is for supergroups, the minimum allowed delay between
-	// consecutive messages sent by each unprivileged user. Returned only in
-	// getChat.
-	//
-	// optional
-	SlowModeDelay int `json:"slow_mode_delay,omitempty"`
-	// MessageAutoDeleteTime is the time after which all messages sent to the
-	// chat will be automatically deleted; in seconds. Returned only in getChat.
-	//
-	// optional
-	MessageAutoDeleteTime int `json:"message_auto_delete_time,omitempty"`
-	// HasProtectedContent is true if messages from the chat can't be forwarded
-	// to other chats. Returned only in getChat.
-	//
-	// optional
-	HasProtectedContent bool `json:"has_protected_content,omitempty"`
-	// StickerSetName is for supergroups, name of group sticker set.Returned
-	// only in getChat.
-	//
-	// optional
-	StickerSetName string `json:"sticker_set_name,omitempty"`
-	// CanSetStickerSet is true, if the bot can change the group sticker set.
-	// Returned only in getChat.
-	//
-	// optional
-	CanSetStickerSet bool `json:"can_set_sticker_set,omitempty"`
-	// LinkedChatID is a unique identifier for the linked chat, i.e. the
-	// discussion group identifier for a channel and vice versa; for supergroups
-	// and channel chats.
-	//
-	// optional
-	LinkedChatID int64 `json:"linked_chat_id,omitempty"`
-	// Location is for supergroups, the location to which the supergroup is
-	// connected. Returned only in getChat.
-	//
-	// optional
-	Location *ChatLocation `json:"location,omitempty"`
 }
 
 // IsPrivate returns if the Chat is a private conversation.
@@ -600,6 +476,181 @@ func (c Chat) ChatConfig() ChatConfig {
 // accessible via field promotion.
 type ChatFullInfo struct {
 	Chat
+	// ActiveUsernames is a list of all active chat usernames; for private chats,
+	// supergroups and channels.
+	//
+	// optional
+	ActiveUsernames []string `json:"active_usernames,omitempty"`
+	// EmojiStatusCustomEmojiID is the custom emoji identifier of emoji status of
+	// the other party in a private chat.
+	//
+	// optional
+	EmojiStatusCustomEmojiID string `json:"emoji_status_custom_emoji_id,omitempty"`
+	// EmojiStatusExpirationDate is the expiration date of the emoji status of
+	// the other party in a private chat in Unix time, if any.
+	//
+	// optional
+	EmojiStatusExpirationDate int64 `json:"emoji_status_expiration_date,omitempty"`
+	// AccentColorID is the identifier of the accent color for the chat name
+	// and backgrounds of the chat photo, reply header, and link preview.
+	//
+	// optional
+	AccentColorID int `json:"accent_color_id,omitempty"`
+	// BackgroundCustomEmojiID is the custom emoji identifier of the emoji
+	// chosen by the chat for the reply header and link preview background.
+	//
+	// optional
+	BackgroundCustomEmojiID string `json:"background_custom_emoji_id,omitempty"`
+	// ProfileAccentColorID is the identifier of the accent color for the
+	// chat's profile background.
+	//
+	// optional
+	ProfileAccentColorID int `json:"profile_accent_color_id,omitempty"`
+	// ProfileBackgroundCustomEmojiID is the custom emoji identifier of the
+	// emoji chosen by the chat for its profile background.
+	//
+	// optional
+	ProfileBackgroundCustomEmojiID string `json:"profile_background_custom_emoji_id,omitempty"`
+	// HasVisibleHistory is true, if new chat members will have access to old
+	// messages; available only to chat administrators.
+	//
+	// optional
+	HasVisibleHistory bool `json:"has_visible_history,omitempty"`
+	// HasHiddenMembers is true, if non-administrators can only see bots and
+	// administrators in the chat.
+	//
+	// optional
+	HasHiddenMembers bool `json:"has_hidden_members,omitempty"`
+	// HasAggressiveAntiSpamEnabled is true, if aggressive anti-spam checks are
+	// enabled in the supergroup. Visible only to chat administrators. Returned
+	// only in getChat.
+	//
+	// optional
+	HasAggressiveAntiSpamEnabled bool `json:"has_aggressive_anti_spam_enabled,omitempty"`
+	// UnrestrictBoostCount is the minimum number of boosts that a non-administrator
+	// user needs to add to the chat in order to ignore slow mode and chat
+	// permissions.
+	//
+	// optional
+	UnrestrictBoostCount int `json:"unrestrict_boost_count,omitempty"`
+	// CustomEmojiStickerSetName is the name of the chat's custom emoji sticker
+	// set.
+	//
+	// optional
+	CustomEmojiStickerSetName string `json:"custom_emoji_sticker_set_name,omitempty"`
+	// Birthdate of the other party in a private chat.
+	//
+	// optional
+	Birthdate *Birthdate `json:"birthdate,omitempty"`
+	// BusinessIntro is the intro of the business account. Returned only in
+	// getChat for business accounts.
+	//
+	// optional
+	BusinessIntro *BusinessIntro `json:"business_intro,omitempty"`
+	// BusinessLocation is the location of the business account. Returned only
+	// in getChat for business accounts.
+	//
+	// optional
+	BusinessLocation *BusinessLocation `json:"business_location,omitempty"`
+	// BusinessOpeningHours is the opening hours of the business account.
+	// Returned only in getChat for business accounts.
+	//
+	// optional
+	BusinessOpeningHours *BusinessOpeningHours `json:"business_opening_hours,omitempty"`
+	// PersonalChat is the personal channel of the private chat's user.
+	// Returned only in getChat for private chats.
+	//
+	// optional
+	PersonalChat *Chat `json:"personal_chat,omitempty"`
+	// Photo is a chat photo
+	Photo *ChatPhoto `json:"photo,omitempty"`
+	// Bio is the bio of the other party in a private chat. Returned only in
+	// getChat
+	//
+	// optional
+	Bio string `json:"bio,omitempty"`
+	// HasPrivateForwards is true if privacy settings of the other party in the
+	// private chat allows to use tg://user?id=<user_id> links only in chats
+	// with the user.
+	//
+	// optional
+	HasPrivateForwards bool `json:"has_private_forwards,omitempty"`
+	// HasRestrictedVoiceAndVideoMessages is true, if the privacy settings of the
+	// other party restrict sending voice and video note messages in the private
+	// chat.
+	//
+	// optional
+	HasRestrictedVoiceAndVideoMessages bool `json:"has_restricted_voice_and_video_messages,omitempty"`
+	// Description for groups, supergroups and channel chats
+	//
+	// optional
+	Description string `json:"description,omitempty"`
+	// JoinToSendMessages is true, if users need to join the supergroup before
+	// they can send messages.
+	//
+	// optional
+	JoinToSendMessages bool `json:"join_to_send_messages,omitempty"`
+	// JoinByRequest is true, if all users directly joining the supergroup need
+	// to be approved by supergroup administrators.
+	//
+	// optional
+	JoinByRequest bool `json:"join_by_request,omitempty"`
+	// InviteLink is a chat invite link, for groups, supergroups and channel chats.
+	// Each administrator in a chat generates their own invite links,
+	// so the bot must first generate the link using exportChatInviteLink
+	//
+	// optional
+	InviteLink string `json:"invite_link,omitempty"`
+	// PinnedMessage is the pinned message, for groups, supergroups and channels
+	//
+	// optional
+	PinnedMessage *Message `json:"pinned_message,omitempty"`
+	// AvailableReactions is the list of available reactions allowed in the
+	// chat. If omitted, then all emoji reactions are allowed. Returned only
+	// in getChat.
+	//
+	// optional
+	AvailableReactions []ReactionType `json:"available_reactions,omitempty"`
+	// Permissions are default chat member permissions, for groups and
+	// supergroups.
+	//
+	// optional
+	Permissions *ChatPermissions `json:"permissions,omitempty"`
+	// SlowModeDelay is for supergroups, the minimum allowed delay between
+	// consecutive messages sent by each unprivileged user.
+	//
+	// optional
+	SlowModeDelay int `json:"slow_mode_delay,omitempty"`
+	// MessageAutoDeleteTime is the time after which all messages sent to the
+	// chat will be automatically deleted; in seconds.
+	//
+	// optional
+	MessageAutoDeleteTime int `json:"message_auto_delete_time,omitempty"`
+	// HasProtectedContent is true if messages from the chat can't be forwarded
+	// to other chats.
+	//
+	// optional
+	HasProtectedContent bool `json:"has_protected_content,omitempty"`
+	// StickerSetName is for supergroups, name of group sticker set.Returned
+	// only in getChat.
+	//
+	// optional
+	StickerSetName string `json:"sticker_set_name,omitempty"`
+	// CanSetStickerSet is true, if the bot can change the group sticker set.
+	//
+	// optional
+	CanSetStickerSet bool `json:"can_set_sticker_set,omitempty"`
+	// LinkedChatID is a unique identifier for the linked chat, i.e. the
+	// discussion group identifier for a channel and vice versa; for supergroups
+	// and channel chats.
+	//
+	// optional
+	LinkedChatID int64 `json:"linked_chat_id,omitempty"`
+	// Location is for supergroups, the location to which the supergroup is
+	// connected.
+	//
+	// optional
+	Location *ChatLocation `json:"location,omitempty"`
 	// MaxReactionCount is the maximum number of reactions that can be set
 	// on a message in the chat.
 	MaxReactionCount int `json:"max_reaction_count"`
@@ -817,11 +868,6 @@ type Message struct {
 	//
 	// optional
 	Animation *Animation `json:"animation,omitempty"`
-	// PremiumAnimation message is an animation, information about the animation.
-	// For backward compatibility, when this field is set, the document field will also be set;
-	//
-	// optional
-	PremiumAnimation *Animation `json:"premium_animation,omitempty"`
 	// Audio message is an audio file, information about the file;
 	//
 	// optional
@@ -1347,6 +1393,16 @@ type MessageEntity struct {
 	//
 	// optional
 	CustomEmojiID string `json:"custom_emoji_id,omitempty"`
+	// UnixTime for "date_time" only, the Unix time associated with the entity.
+	//
+	// optional
+	UnixTime int64 `json:"unix_time,omitempty"`
+	// DateTimeFormat for "date_time" only, the string that defines the
+	// formatting of the date and time. See date-time entity formatting for
+	// more details.
+	//
+	// optional
+	DateTimeFormat string `json:"date_time_format,omitempty"`
 }
 
 // ParseURL attempts to parse a URL contained within a MessageEntity.
@@ -1769,8 +1825,14 @@ type PollOptionAdded struct {
 	//
 	// optional
 	PollMessage *Message `json:"poll_message,omitempty"`
-	// Option is the added poll option.
-	Option PollOption `json:"option"`
+	// OptionPersistentID is the unique identifier of the added option.
+	OptionPersistentID string `json:"option_persistent_id"`
+	// OptionText is the option text.
+	OptionText string `json:"option_text"`
+	// OptionTextEntities are special entities that appear in the OptionText.
+	//
+	// optional
+	OptionTextEntities []MessageEntity `json:"option_text_entities,omitempty"`
 }
 
 // PollOptionDeleted describes a service message about a poll option being
@@ -1780,8 +1842,14 @@ type PollOptionDeleted struct {
 	//
 	// optional
 	PollMessage *Message `json:"poll_message,omitempty"`
-	// OptionPersistentID is the persistent identifier of the deleted option.
+	// OptionPersistentID is the unique identifier of the deleted option.
 	OptionPersistentID string `json:"option_persistent_id"`
+	// OptionText is the option text.
+	OptionText string `json:"option_text"`
+	// OptionTextEntities are special entities that appear in the OptionText.
+	//
+	// optional
+	OptionTextEntities []MessageEntity `json:"option_text_entities,omitempty"`
 }
 
 // PollAnswer represents an answer of a user in a non-anonymous poll.
@@ -3047,9 +3115,15 @@ type Story struct {
 	ID int `json:"id"`
 }
 
-// ChatOwnerLeft represents a service message about the owner leaving the chat.
-// Currently holds no information.
-type ChatOwnerLeft struct{}
+// ChatOwnerLeft represents a service message about the chat owner leaving the
+// chat.
+type ChatOwnerLeft struct {
+	// NewOwner is the user who will become the new owner of the chat if the
+	// previous owner does not return to the chat.
+	//
+	// optional
+	NewOwner *User `json:"new_owner,omitempty"`
+}
 
 // ChatOwnerChanged represents a service message about a change of the chat
 // owner.
@@ -3058,48 +3132,34 @@ type ChatOwnerChanged struct {
 	NewOwner User `json:"new_owner"`
 }
 
-// VideoQuality describes an available quality variant for a video.
-//
-// Note: the exact field layout of this type is not fully verified. When
-// serializing or deserializing you may need to use the Raw payload.
+// VideoQuality represents a video file of a specific quality.
 type VideoQuality struct {
-	Raw json.RawMessage `json:"-"`
+	// FileID is the identifier for this file, which can be used to download
+	// or reuse the file.
+	FileID string `json:"file_id"`
+	// FileUniqueID is the unique identifier for this file, which is supposed
+	// to be the same over time and for different bots. Can't be used to
+	// download or reuse the file.
+	FileUniqueID string `json:"file_unique_id"`
+	// Width is the video width.
+	Width int `json:"width"`
+	// Height is the video height.
+	Height int `json:"height"`
+	// Codec is the codec that was used to encode the video, for example,
+	// "h264", "h265", or "av01".
+	Codec string `json:"codec"`
+	// FileSize is the file size in bytes.
+	//
+	// optional
+	FileSize int64 `json:"file_size,omitempty"`
 }
 
-// UnmarshalJSON preserves the raw JSON payload for VideoQuality.
-func (v *VideoQuality) UnmarshalJSON(b []byte) error {
-	v.Raw = append(v.Raw[:0], b...)
-	return nil
-}
-
-// MarshalJSON emits the raw JSON payload, or `null` if unset.
-func (v VideoQuality) MarshalJSON() ([]byte, error) {
-	if len(v.Raw) == 0 {
-		return []byte("null"), nil
-	}
-	return v.Raw, nil
-}
-
-// UserProfileAudios describes the audios posted to a user's profile.
-//
-// Note: the exact field layout of this type is not fully verified. When
-// serializing or deserializing you may need to use the Raw payload.
+// UserProfileAudios represents the audios displayed on a user's profile.
 type UserProfileAudios struct {
-	Raw json.RawMessage `json:"-"`
-}
-
-// UnmarshalJSON preserves the raw JSON payload for UserProfileAudios.
-func (u *UserProfileAudios) UnmarshalJSON(b []byte) error {
-	u.Raw = append(u.Raw[:0], b...)
-	return nil
-}
-
-// MarshalJSON emits the raw JSON payload, or `null` if unset.
-func (u UserProfileAudios) MarshalJSON() ([]byte, error) {
-	if len(u.Raw) == 0 {
-		return []byte("null"), nil
-	}
-	return u.Raw, nil
+	// TotalCount is the total number of profile audios for the target user.
+	TotalCount int `json:"total_count"`
+	// Audios are the requested profile audios.
+	Audios []Audio `json:"audios"`
 }
 
 // ChatBoostAdded represents a service message about a user boosting a chat.
@@ -3550,6 +3610,11 @@ type TransactionPartner struct {
 	//
 	// optional
 	PaidMedia []PaidMedia `json:"paid_media,omitempty"`
+	// PaidMediaPayload is the bot-specified paid media payload. Set when
+	// Type is "user" and TransactionType is "paid_media_payment".
+	//
+	// optional
+	PaidMediaPayload string `json:"paid_media_payload,omitempty"`
 	// Gift is the gift sent to the user by the bot. Set when Type is
 	// "user" and the transaction is a gift purchase.
 	//
@@ -3671,71 +3736,56 @@ type PaidMediaPurchased struct {
 	PaidMediaPayload string `json:"paid_media_payload"`
 }
 
-// UniqueGiftColors describes the color scheme for a user's name, replies
-// to messages, and link previews based on a unique gift.
-//
-// Note: the exact field layout of this type is not fully verified. When
-// serializing or deserializing you may need to use the Raw payload.
+// UniqueGiftColors contains information about the color scheme for a user's
+// name, message replies and link previews based on a unique gift.
 type UniqueGiftColors struct {
-	Raw json.RawMessage `json:"-"`
+	// ModelCustomEmojiID is the custom emoji identifier of the unique gift's
+	// model.
+	ModelCustomEmojiID string `json:"model_custom_emoji_id"`
+	// SymbolCustomEmojiID is the custom emoji identifier of the unique
+	// gift's symbol.
+	SymbolCustomEmojiID string `json:"symbol_custom_emoji_id"`
+	// LightThemeMainColor is the main color used in light themes; RGB format.
+	LightThemeMainColor int `json:"light_theme_main_color"`
+	// LightThemeOtherColors is the list of 1-3 additional colors used in
+	// light themes; RGB format.
+	LightThemeOtherColors []int `json:"light_theme_other_colors"`
+	// DarkThemeMainColor is the main color used in dark themes; RGB format.
+	DarkThemeMainColor int `json:"dark_theme_main_color"`
+	// DarkThemeOtherColors is the list of 1-3 additional colors used in dark
+	// themes; RGB format.
+	DarkThemeOtherColors []int `json:"dark_theme_other_colors"`
 }
 
-// UnmarshalJSON preserves the raw JSON payload for UniqueGiftColors.
-func (u *UniqueGiftColors) UnmarshalJSON(b []byte) error {
-	u.Raw = append(u.Raw[:0], b...)
-	return nil
-}
-
-// MarshalJSON emits the raw JSON payload, or `null` if unset.
-func (u UniqueGiftColors) MarshalJSON() ([]byte, error) {
-	if len(u.Raw) == 0 {
-		return []byte("null"), nil
-	}
-	return u.Raw, nil
-}
-
-// GiftBackground describes the background associated with a gift.
-//
-// Note: the exact field layout of this type is not fully verified. When
-// serializing or deserializing you may need to use the Raw payload.
+// GiftBackground describes the background of a gift.
 type GiftBackground struct {
-	Raw json.RawMessage `json:"-"`
+	// CenterColor is the center color of the background in RGB format.
+	CenterColor int `json:"center_color"`
+	// EdgeColor is the edge color of the background in RGB format.
+	EdgeColor int `json:"edge_color"`
+	// TextColor is the text color of the background in RGB format.
+	TextColor int `json:"text_color"`
 }
 
-// UnmarshalJSON preserves the raw JSON payload for GiftBackground.
-func (g *GiftBackground) UnmarshalJSON(b []byte) error {
-	g.Raw = append(g.Raw[:0], b...)
-	return nil
-}
-
-// MarshalJSON emits the raw JSON payload, or `null` if unset.
-func (g GiftBackground) MarshalJSON() ([]byte, error) {
-	if len(g.Raw) == 0 {
-		return []byte("null"), nil
-	}
-	return g.Raw, nil
-}
-
-// UserRating describes the rating of a user in a private chat.
-//
-// Note: the exact field layout of this type is not fully verified. When
-// serializing or deserializing you may need to use the Raw payload.
+// UserRating describes the rating of a user based on their Telegram Star
+// spendings.
 type UserRating struct {
-	Raw json.RawMessage `json:"-"`
-}
-
-// UnmarshalJSON preserves the raw JSON payload for UserRating.
-func (u *UserRating) UnmarshalJSON(b []byte) error {
-	u.Raw = append(u.Raw[:0], b...)
-	return nil
-}
-
-// MarshalJSON emits the raw JSON payload, or `null` if unset.
-func (u UserRating) MarshalJSON() ([]byte, error) {
-	if len(u.Raw) == 0 {
-		return []byte("null"), nil
-	}
-	return u.Raw, nil
+	// Level is the current level of the user, indicating their reliability
+	// when purchasing digital goods and services. A higher level suggests a
+	// more trustworthy customer; a negative level is likely reason for
+	// concern.
+	Level int `json:"level"`
+	// Rating is the numerical value of the user's rating; the higher the
+	// rating, the better.
+	Rating int `json:"rating"`
+	// CurrentLevelRating is the rating value required to get the current
+	// level.
+	CurrentLevelRating int `json:"current_level_rating"`
+	// NextLevelRating is the rating value required to get to the next level;
+	// omitted if the maximum level was reached.
+	//
+	// optional
+	NextLevelRating int `json:"next_level_rating,omitempty"`
 }
 
 // Gift represents a gift that can be sent by the bot.
@@ -4017,14 +4067,16 @@ const (
 type OwnedGift struct {
 	// Type of the gift. One of "regular", "unique".
 	Type string `json:"type"`
-	// Gift is the regular gift, when Type is "regular".
+	// Gift is the regular gift, when Type is "regular". It shares the "gift"
+	// wire field with UniqueGift.
 	//
 	// optional
-	Gift *Gift `json:"gift,omitempty"`
-	// UniqueGift is the unique gift, when Type is "unique".
+	Gift *Gift `json:"-"`
+	// UniqueGift is the unique gift, when Type is "unique". It shares the
+	// "gift" wire field with Gift.
 	//
 	// optional
-	UniqueGift *UniqueGift `json:"unique_gift,omitempty"`
+	UniqueGift *UniqueGift `json:"-"`
 	// OwnedGiftID is the unique identifier of the gift for the bot; for
 	// gifts received on behalf of business accounts only.
 	//
@@ -4103,6 +4155,51 @@ type OwnedGift struct {
 	//
 	// optional
 	NextTransferDate int `json:"next_transfer_date,omitempty"`
+}
+
+// UnmarshalJSON decodes an OwnedGift, routing the polymorphic "gift" field to
+// Gift or UniqueGift based on Type.
+func (g *OwnedGift) UnmarshalJSON(data []byte) error {
+	type alias OwnedGift
+	aux := struct {
+		*alias
+		Gift json.RawMessage `json:"gift,omitempty"`
+	}{alias: (*alias)(g)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if len(aux.Gift) == 0 || string(aux.Gift) == "null" {
+		return nil
+	}
+
+	if g.Type == OwnedGiftTypeUnique {
+		g.UniqueGift = new(UniqueGift)
+		return json.Unmarshal(aux.Gift, g.UniqueGift)
+	}
+
+	g.Gift = new(Gift)
+	return json.Unmarshal(aux.Gift, g.Gift)
+}
+
+// MarshalJSON encodes an OwnedGift, emitting Gift or UniqueGift under the
+// shared "gift" wire field.
+func (g OwnedGift) MarshalJSON() ([]byte, error) {
+	type alias OwnedGift
+	aux := struct {
+		alias
+		Gift any `json:"gift,omitempty"`
+	}{alias: alias(g)}
+
+	switch {
+	case g.UniqueGift != nil:
+		aux.Gift = g.UniqueGift
+	case g.Gift != nil:
+		aux.Gift = g.Gift
+	}
+
+	return json.Marshal(aux)
 }
 
 // OwnedGifts contains the list of gifts received and owned by a user or chat.
@@ -4837,6 +4934,10 @@ type ExternalReplyInfo struct {
 	//
 	// optional
 	HasMediaSpoiler bool `json:"has_media_spoiler,omitempty"`
+	// Checklist is set if the message is a checklist.
+	//
+	// optional
+	Checklist *Checklist `json:"checklist,omitempty"`
 	// Contact is set if the message is a shared contact.
 	//
 	// optional
@@ -6078,8 +6179,12 @@ type InlineQueryResultCachedSticker struct {
 	ID string `json:"id"`
 	// StickerID a valid file identifier of the sticker
 	StickerID string `json:"sticker_file_id"`
-	// Title is a title
-	Title string `json:"title"`
+	// Title is not a part of the Bot API for cached sticker results and is
+	// ignored by Telegram.
+	//
+	// Deprecated: Telegram does not support this field. It is kept only for
+	// source compatibility and will be removed in a future release.
+	Title string `json:"title,omitempty"`
 	// ReplyMarkup inline keyboard attached to the message
 	//
 	// optional
@@ -6289,6 +6394,17 @@ type InlineQueryResultDocument struct {
 	//
 	// optional
 	Caption string `json:"caption,omitempty"`
+	// ParseMode mode for parsing entities in the document caption.
+	// See formatting options for more details
+	// (https://core.telegram.org/bots/api#formatting-options).
+	//
+	// optional
+	ParseMode string `json:"parse_mode,omitempty"`
+	// CaptionEntities is a list of special entities that appear in the caption,
+	// which can be specified instead of parse_mode
+	//
+	// optional
+	CaptionEntities []MessageEntity `json:"caption_entities,omitempty"`
 	// URL a valid url for the file
 	URL string `json:"document_url"`
 	// MimeType of the content of the file, either “application/pdf” or “application/zip”
@@ -6507,8 +6623,12 @@ type InlineQueryResultPhoto struct {
 	// URL a valid URL of the photo. Photo must be in jpeg format.
 	// Photo size must not exceed 5MB.
 	URL string `json:"photo_url"`
-	// MimeType
-	MimeType string `json:"mime_type"`
+	// MimeType is not a part of the Bot API for photo results and is ignored
+	// by Telegram.
+	//
+	// Deprecated: Telegram does not support this field. It is kept only for
+	// source compatibility and will be removed in a future release.
+	MimeType string `json:"mime_type,omitempty"`
 	// Width of the photo
 	//
 	// optional
@@ -6632,6 +6752,17 @@ type InlineQueryResultVideo struct {
 	//
 	// optional
 	Caption string `json:"caption,omitempty"`
+	// ParseMode mode for parsing entities in the video caption.
+	// See formatting options for more details
+	// (https://core.telegram.org/bots/api#formatting-options).
+	//
+	// optional
+	ParseMode string `json:"parse_mode,omitempty"`
+	// CaptionEntities is a list of special entities that appear in the caption,
+	// which can be specified instead of parse_mode
+	//
+	// optional
+	CaptionEntities []MessageEntity `json:"caption_entities,omitempty"`
 	// ShowCaptionAboveMedia pass True if the caption must be shown above the
 	// message media.
 	//

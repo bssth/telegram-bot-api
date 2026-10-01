@@ -111,6 +111,19 @@ type (
 		// "identity_card" and "internal_passport". The file can be decrypted
 		// and verified using the accompanying EncryptedCredentials.
 		Selfie *PassportFile `json:"selfie,omitempty"`
+
+		// Array of encrypted files with translated versions of documents
+		// provided by the user; available if requested for "passport",
+		// "driver_license", "identity_card", "internal_passport",
+		// "utility_bill", "bank_statement", "rental_agreement",
+		// "passport_registration" and "temporary_registration" types. Files
+		// can be decrypted and verified using the accompanying
+		// EncryptedCredentials.
+		Translation []PassportFile `json:"translation,omitempty"`
+
+		// Base64-encoded element hash for using in
+		// PassportElementErrorUnspecified
+		Hash string `json:"hash"`
 	}
 
 	// EncryptedCredentials contains data required for decrypting and
@@ -243,6 +256,64 @@ type (
 
 		// List of base64-encoded file hashes
 		FileHashes []string `json:"file_hashes"`
+
+		// Error message
+		Message string `json:"message"`
+	}
+
+	// PassportElementErrorTranslationFile represents an issue with one of the
+	// files that constitute the translation of a document. The error is
+	// considered resolved when the file changes.
+	PassportElementErrorTranslationFile struct {
+		// Error source, must be translation_file
+		Source string `json:"source"`
+
+		// Type of element of the user's Telegram Passport which has the
+		// issue, one of "passport", "driver_license", "identity_card",
+		// "internal_passport", "utility_bill", "bank_statement",
+		// "rental_agreement", "passport_registration",
+		// "temporary_registration"
+		Type string `json:"type"`
+
+		// Base64-encoded file hash
+		FileHash string `json:"file_hash"`
+
+		// Error message
+		Message string `json:"message"`
+	}
+
+	// PassportElementErrorTranslationFiles represents an issue with the
+	// translated version of a document. The error is considered resolved
+	// when a file with the document translation changes.
+	PassportElementErrorTranslationFiles struct {
+		// Error source, must be translation_files
+		Source string `json:"source"`
+
+		// Type of element of the user's Telegram Passport which has the
+		// issue, one of "passport", "driver_license", "identity_card",
+		// "internal_passport", "utility_bill", "bank_statement",
+		// "rental_agreement", "passport_registration",
+		// "temporary_registration"
+		Type string `json:"type"`
+
+		// List of base64-encoded file hashes
+		FileHashes []string `json:"file_hashes"`
+
+		// Error message
+		Message string `json:"message"`
+	}
+
+	// PassportElementErrorUnspecified represents an issue in an unspecified
+	// place. The error is considered resolved when new data is added.
+	PassportElementErrorUnspecified struct {
+		// Error source, must be unspecified
+		Source string `json:"source"`
+
+		// Type of element of the user's Telegram Passport which has the issue
+		Type string `json:"type"`
+
+		// Base64-encoded element hash
+		ElementHash string `json:"element_hash"`
 
 		// Error message
 		Message string `json:"message"`
