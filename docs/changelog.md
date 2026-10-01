@@ -1,5 +1,23 @@
 # Change Log
 
+## Unreleased
+
+- Module path is now `github.com/bssth/telegram-bot-api/v5`; the upstream
+  repository is no longer maintained.
+- Support every Bot API version from 6.1 to 10.3, based on the unmerged
+  upstream pull request
+  [#794](https://github.com/go-telegram-bot-api/telegram-bot-api/pull/794).
+- Audit against the machine-readable Bot API 10.3 specification: all types,
+  fields, methods and parameters are present.
+- Upload files nested in polls and rich messages via `attach://`.
+- Redact the bot token from transport errors.
+- Add `internal/cmd/specdiff` and a weekly workflow that report gaps against
+  the latest Bot API specification.
+- Require Go 1.24.
+- See [BREAKING.md][breaking] for source-incompatible changes.
+
+[breaking]: https://github.com/bssth/telegram-bot-api/blob/master/BREAKING.md
+
 ## v5.4.0
 
 - Remove all methods that return `(APIResponse, error)`.

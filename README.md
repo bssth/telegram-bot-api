@@ -1,64 +1,66 @@
 # Golang bindings for the Telegram Bot API
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/kirugan/telegram-bot-api/v5.svg)](https://pkg.go.dev/github.com/kirugan/telegram-bot-api/v5)
+[![Go Reference](https://pkg.go.dev/badge/github.com/bssth/telegram-bot-api/v5.svg)](https://pkg.go.dev/github.com/bssth/telegram-bot-api/v5)
+[![Test](https://github.com/bssth/telegram-bot-api/actions/workflows/test.yml/badge.svg)](https://github.com/bssth/telegram-bot-api/actions/workflows/test.yml)
+[![Bot API](https://img.shields.io/badge/Bot%20API-10.3-blue.svg)](https://core.telegram.org/bots/api-changelog)
 
-> **This is a maintained fork of
+> **This is the maintained continuation of
 > [`go-telegram-bot-api/telegram-bot-api`](https://github.com/go-telegram-bot-api/telegram-bot-api).**
-> The upstream project stopped updating at Bot API 6.0 (April 2022). This fork
-> is brought up to **Bot API 10.3** (the latest release as of this writing) and
-> tracks the [official changelog](https://core.telegram.org/bots/api-changelog)
-> going forward.
+> The original project stopped at Bot API 6.0 (April 2022) and no longer
+> accepts changes. This fork supports **Bot API 10.3** (August 24, 2026) and
+> follows the [official changelog](https://core.telegram.org/bots/api-changelog).
 
 All methods are fairly self-explanatory, and reading the
-[godoc](https://pkg.go.dev/github.com/kirugan/telegram-bot-api/v5) page should
-explain everything.
+[godoc](https://pkg.go.dev/github.com/bssth/telegram-bot-api/v5) page should
+explain everything. If something isn't clear, open an
+[issue](https://github.com/bssth/telegram-bot-api/issues) or submit a pull
+request.
 
 The scope of this project is just to provide a wrapper around the API without
 any additional features. There are other projects for creating something with
 plugins and command handlers without having to design all that yourself.
 
----
+More tutorials and high-level information live in the [`docs`](./docs)
+directory.
 
 ## Installing
 
 ```sh
-go get github.com/kirugan/telegram-bot-api/v5
+go get github.com/bssth/telegram-bot-api/v5@latest
 ```
 
 ```go
-import tgbotapi "github.com/kirugan/telegram-bot-api/v5"
+import tgbotapi "github.com/bssth/telegram-bot-api/v5"
 ```
 
-Note: because the module path changed from `go-telegram-bot-api` to `kirugan`,
-a Go `replace` directive in `go.mod` **will not** silently redirect existing
-code — Go requires the replacement's module path to match the original. Either
-update your imports, or keep using upstream on 6.0.
+Go 1.24 or newer is required.
 
-## Migrating from upstream
+## Migrating from `go-telegram-bot-api/telegram-bot-api`
 
-If you're coming from `go-telegram-bot-api/telegram-bot-api` v5.5.x and want to
-jump to the latest Bot API, read [**BREAKING.md**](./BREAKING.md). It lists
-every source-incompatible change introduced while bringing the fork from 6.0
-to 10.0, grouped by topic, with before/after snippets for each one (10.1
-through 10.3 are purely additive and introduced no breaking changes). The fastest
-way to migrate is `grep` your codebase for the old identifier and apply the
-rewrite.
+1. Change the import path. The package name stays `tgbotapi`, so nothing else
+   in your code needs to be renamed:
 
-### Migrating with Claude (or any LLM)
+   ```sh
+   grep -rl 'github.com/go-telegram-bot-api/telegram-bot-api/v5' --include='*.go' . \
+     | xargs sed -i 's#github.com/go-telegram-bot-api/telegram-bot-api/v5#github.com/bssth/telegram-bot-api/v5#g'
+   go get github.com/bssth/telegram-bot-api/v5@latest
+   go mod tidy
+   ```
 
-`BREAKING.md` was written so it can be fed directly to a coding assistant.
-A prompt like:
+   (On macOS use `sed -i ''`.) A `replace` directive in `go.mod` is not
+   enough: Go requires a replacement module to declare the same module path
+   as the one it replaces.
 
-> Here is `BREAKING.md` from a Go library I'm upgrading. Here are the files in
-> my project that use `tgbotapi`. Please rewrite them to compile against the
-> new API, preserving behavior.
+2. Fix whatever no longer compiles using [**BREAKING.md**](./BREAKING.md). It
+   lists every source-incompatible change between upstream v5.5.1 (Bot API
+   6.0) and this fork, grouped by topic, with before/after snippets. Most of
+   them come from Telegram itself: `Thumb` became `Thumbnail`,
+   `ReplyToMessageID` became `ReplyParameters`, `DisableWebPagePreview` became
+   `LinkPreviewOptions`, and so on.
 
-handles most of the mechanical rewrites (`Thumb` → `Thumbnail`,
-`ReplyToMessageID` → `ReplyParameters`, `DisableWebPagePreview` →
-`LinkPreviewOptions`, sticker creation, etc.) in one pass. Review the diff,
-run `go build ./...`, done.
-
----
+`BREAKING.md` is written so it can be handed to a coding assistant together
+with the files that use `tgbotapi`; it handles most of the mechanical
+rewrites in one pass. Review the diff, run `go build ./...`, done.
 
 ## Example
 
@@ -71,7 +73,7 @@ package main
 import (
 	"log"
 
-	tgbotapi "github.com/kirugan/telegram-bot-api/v5"
+	tgbotapi "github.com/bssth/telegram-bot-api/v5"
 )
 
 func main() {
@@ -113,7 +115,7 @@ import (
 	"log"
 	"net/http"
 
-	tgbotapi "github.com/kirugan/telegram-bot-api/v5"
+	tgbotapi "github.com/bssth/telegram-bot-api/v5"
 )
 
 func main() {
@@ -162,55 +164,79 @@ to generate your free TLS certificate there.
 
 ---
 
-## What this fork adds
+## What changed since upstream
 
-### Bot API versions
+### Bot API coverage
 
-Full support for every Bot API version from **6.1 through 10.3**. See git log
-for the per-version commits; each `Full support of API X` commit message is
-the authoritative trail for what that version added.
+Every Bot API version from **6.1 through 10.3** is supported: all types,
+fields, methods and parameters of the current specification are present.
+Highlights of the last releases:
 
-The 10.1 surface includes rich messages (`SendRichMessage` via
-`SendRichMessageConfig` + `NewRichMessage`, streaming drafts via
-`SendRichMessageDraftConfig`, the `InputRichMessage` send type, the received
-`RichMessage` / `RichText` / `RichBlock` tree, and `EditMessageTextConfig.RichMessage`),
-join request queries (`AnswerChatJoinRequestQueryConfig`,
-`SendChatJoinRequestWebAppConfig`, `ChatJoinRequest.QueryID`,
-`ChatFullInfo.GuardBot`, `User.SupportsJoinRequestQueries`), and poll links
-(`Link`, `PollMedia.Link`, `InputMediaLink`).
+- **10.3** — rich message buttons (`RichMessageButton`, the "buttons",
+  "document" and "expandable_blockquote" blocks), structured ephemeral send
+  parameters (`EphemeralMessageParameters`), disabled buttons and force-reply
+  keyboards (`DisabledButton`, `InlineKeyboardButton.Disabled`), stoppable
+  drafts (`CanStop` / `KeepOnStop`, `Update.StoppedMessageGeneration`),
+  welcome message rights, `CommunityChatJoined`, gift text fields.
+- **10.2** — block-structured rich messages (`InputRichBlock`), explicit media
+  for rich messages (`InputRichMessageMedia`, `InputMediaVoiceNote`),
+  ephemeral messages (`ReplyParameters.EphemeralMessageID`, the
+  `EditEphemeralMessage*` and `DeleteEphemeralMessage` configs,
+  `Message.ReceiverUser`), communities, payment subscription updates.
+- **10.1** — rich messages (`NewRichMessage`, `SendRichMessageDraftConfig`,
+  `RichMessage` / `RichText` / `RichBlock`), join request queries
+  (`AnswerChatJoinRequestQueryConfig`, `SendChatJoinRequestWebAppConfig`),
+  poll links (`InputMediaLink`).
+- **10.0** — guest mode (`AnswerGuestQuery`, `Update.GuestMessage`), live
+  photos (`NewLivePhoto`, `InputMediaLivePhoto`), poll media for questions,
+  options and explanations, reaction administration, managed bot access
+  settings.
+- **9.x** — managed bots, checklists, suggested posts, direct messages in
+  channels, gifts and Telegram Stars, business accounts, stories.
+- **7.x – 8.x** — replies 2.0 (`ReplyParameters`), link preview options,
+  reactions, boosts, giveaways, business connections, paid media, Mini App
+  improvements, and much more.
 
-The 10.2 surface adds block-structured rich messages (`InputRichBlock`,
-`InputRichBlockListItem`, `InputRichMessage.Blocks`) and explicit media for
-markdown/HTML rich messages (`InputRichMessageMedia`, `InputMediaVoiceNote`),
-ephemeral messages (`EphemeralSendParams` on the send configs that support
-them, `ReplyParameters.EphemeralMessageID`, the `EditEphemeralMessage*` and
-`DeleteEphemeralMessage` configs, `Message.ReceiverUser`,
-`BotCommand.IsEphemeral`), communities (`Community`, `CommunityChatAdded`,
-`CommunityChatRemoved`, `ChatFullInfo.Community`), and payment subscription
-updates (`BotSubscriptionUpdated`, `Update.Subscription`).
+See the git history for the per-version commits; each `Full support of API X`
+commit message lists what that version added.
 
-The 10.3 surface adds rich message buttons (`RichMessageButton`, the "button"
-`RichText` span, the "buttons", "document", and "expandable_blockquote"
-blocks), structured ephemeral send parameters (`EphemeralMessageParameters`
-with `ReplaceCallbackQueryMessage`, sent as one JSON object), disabled and
-force-reply keyboards (`DisabledButton`, `InlineKeyboardButton.Disabled`,
-`ForceReply` on both keyboard markups), stoppable drafts (`CanStop` /
-`KeepOnStop`, `MessageGenerationStopped`, `Update.StoppedMessageGeneration`),
-welcome message rights (`CanSendWelcomeMessages`), community join service
-messages (`CommunityChatJoined`), and gift text fields
-(`UniqueGiftInfo.Text` / `Entities` / `IsPrivate`).
+### Keeping up with the Bot API
 
-The 10.0 surface includes guest mode (`AnswerGuestQuery`,
-`Update.GuestMessage`, `User.SupportsGuestQueries`), live photos
-(`SendLivePhoto` via `LivePhotoConfig` + `NewLivePhoto`, `LivePhoto` /
-`InputMediaLivePhoto` / `PaidMediaLivePhoto`), expanded poll media
-(`PollMedia`, plus `InputMediaSticker` / `InputMediaLocation` /
-`InputMediaVenue` for poll questions, options, and quiz explanations),
-poll restrictions (`MembersOnly`, `CountryCodes`), reaction administration
-(`DeleteMessageReactionConfig`, `DeleteAllMessageReactionsConfig`,
-`CanReactToMessages` on `ChatPermissions` / `ChatMember`), managed-bot
-access settings (`GetManagedBotAccessSettings` / `SetManagedBotAccessSettings`,
-`BotAccessSettings`), and `GetUserPersonalChatMessages`.
+`internal/cmd/specdiff` compares the code with the machine-readable
+[Bot API specification](https://github.com/PaulSonOfLars/telegram-bot-api-spec)
+and lists every missing type, field, method and parameter:
+
+```sh
+go run ./internal/cmd/specdiff       # add -v to also list non-spec extras
+```
+
+The [Bot API spec](./.github/workflows/bot-api-spec.yml) workflow runs it
+weekly, so a new Bot API release shows up as a failed run.
+
+### Credits
+
+The bulk of the Bot API 6.1 → 10.3 work comes from
+[go-telegram-bot-api/telegram-bot-api#794](https://github.com/go-telegram-bot-api/telegram-bot-api/pull/794)
+by [@kirugan](https://github.com/kirugan), which was never merged upstream.
+This fork merges it with authorship preserved and builds on top of it with a
+spec-driven audit (see below), plus ideas from other unmerged upstream pull
+requests.
+
+### Fixes on top of the upstream pull request
+
+- Placeholder types that only kept raw JSON (`VideoQuality`, `UserRating`,
+  `UserProfileAudios`, `GiftBackground`, `UniqueGiftColors`) are real structs.
+- `OwnedGift` decodes unique gifts correctly; `repostStory`,
+  `getUserGifts`, `getChatGifts`, `setStickerSetThumbnail`, `setGameScore`
+  (`force`) and `sendDocument` (`caption_entities`) send the parameters the
+  Bot API expects; `suggested_post_parameters` is supported by every send
+  method; `setPassportDataErrors` is available.
+- Files nested in polls and rich messages are uploaded via `attach://`
+  instead of being serialized into the JSON.
+- `Update.FromChat` / `SentFrom` cover all update kinds and no longer panic
+  on callback queries from inline messages.
+- Transport errors no longer leak the bot token, and `GetFileDirectURL`
+  honours `SetFileEndpoint`.
 
 ### Upstream issues fixed
 

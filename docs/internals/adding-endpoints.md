@@ -105,12 +105,12 @@ have similar fields for their files.
      ChatID          int64
      MessageID       int
 +    Delete          RequestFileData
-+    Thumb           RequestFileData
++    Thumbnail       RequestFileData
  }
 ```
 
 Adding another method is pretty simple. We'll always add a file named `delete`
-and add the `thumb` file if we have one.
+and add the `thumbnail` file if we have one.
 
 ```go
 func (config DeleteMessageConfig) files() []RequestFile {
@@ -119,10 +119,10 @@ func (config DeleteMessageConfig) files() []RequestFile {
 		Data: config.Delete,
 	}}
 
-	if config.Thumb != nil {
+	if config.Thumbnail != nil {
 		files = append(files, RequestFile{
-			Name: "thumb",
-			Data: config.Thumb,
+			Name: "thumbnail",
+			Data: config.Thumbnail,
 		})
 	}
 
@@ -136,7 +136,7 @@ is a `FilePath`, `FileURL`, `FileBytes`, `FileReader`, or `FileID`.
 ### Base Configs
 
 Certain Configs have repeated elements. For example, many of the items sent to a
-chat have `ChatID` or `ChannelUsername` fields, along with `ReplyToMessageID`,
+chat have `ChatID` or `ChannelUsername` fields, along with `ReplyParameters`,
 `ReplyMarkup`, and `DisableNotification`. Instead of implementing all of this
 code for each item, there's a `BaseChat` that handles it for your Config.
 Simply embed it in your struct to get all of those fields.
@@ -147,9 +147,10 @@ embedding the `BaseChat` struct.
 ```go
 type MessageConfig struct {
 	BaseChat
-	Text                  string
-	ParseMode             string
-	DisableWebPagePreview bool
+	Text               string
+	ParseMode          string
+	Entities           []MessageEntity
+	LinkPreviewOptions *LinkPreviewOptions
 }
 ```
 
