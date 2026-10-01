@@ -104,6 +104,21 @@ func buildParams(in Params) url.Values {
 	return out
 }
 
+// redactToken hides the bot token in transport errors. A *url.Error embeds
+// the full request URL in its message, and the URL contains the token, so
+// returning (and then logging) it verbatim would leak the token.
+func (bot *BotAPI) redactToken(err error) error {
+	urlErr, ok := err.(*url.Error)
+	if !ok || bot.Token == "" {
+		return err
+	}
+
+	redacted := *urlErr
+	redacted.URL = strings.ReplaceAll(redacted.URL, bot.Token, "<token>")
+
+	return &redacted
+}
+
 // closeBody drains any unread bytes before closing the response body so that
 // net/http can return the underlying connection to the keep-alive pool.
 // json.Decoder may stop short of EOF (trailing whitespace, partial errors),
@@ -131,7 +146,7 @@ func (bot *BotAPI) MakeRequest(endpoint string, params Params) (*APIResponse, er
 
 	resp, err := bot.Client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, bot.redactToken(err)
 	}
 	defer closeBody(resp.Body)
 
@@ -255,7 +270,7 @@ func (bot *BotAPI) UploadFiles(endpoint string, params Params, files []RequestFi
 
 	resp, err := bot.Client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, bot.redactToken(err)
 	}
 	defer closeBody(resp.Body)
 
