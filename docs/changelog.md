@@ -1,6 +1,6 @@
 # Change Log
 
-## v6.0.0 (unreleased)
+## v6.0.0
 
 - Module path is now `github.com/bssth/telegram-bot-api/v6`: the upstream
   repository is no longer maintained, and the new major version reflects
