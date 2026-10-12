@@ -1,9 +1,8 @@
 # Breaking Changes
 
-This file lists every source-incompatible change between upstream
-`github.com/go-telegram-bot-api/telegram-bot-api/v5` v5.5.1 (Bot API 6.0)
-and this fork (Bot API 10.3). Upgrades are grouped by topic so you can jump
-straight to the area your code touches.
+This file lists every source-incompatible change in this library. Upgrades
+are grouped by major version so you can jump straight to the area your code
+touches.
 
 Each section lists **what to rename** or **what to replace** — the fastest
 way to migrate is `grep` for the old identifier in your code and apply the
@@ -12,7 +11,29 @@ Bot API itself changed.
 
 ---
 
-## Module path
+## Upgrading from v6 to v7
+
+### Module path
+
+```go
+// Before
+import tgbotapi "github.com/bssth/telegram-bot-api/v6"
+
+// After
+import tgbotapi "github.com/bssth/telegram-bot-api/v7"
+```
+
+### Removed deprecated leftovers
+
+- **`BotAPI.GetChatMembersCount`**: use `bot.GetChatMemberCount(cfg)` instead.
+- **`BanChatSenderChatConfig.UntilDate`**: removed because `banChatSenderChat` no longer accepts `until_date` in the Bot API.
+- **`InlineQueryResultPhoto.MimeType`** and **`InlineQueryResultCachedSticker.Title`**: removed because neither is part of the Bot API. `NewInlineQueryResultCachedSticker(id, stickerID)` no longer takes a `title` argument.
+- **`EphemeralSendParams`**: type alias removed; use `EphemeralMessageParameters`.
+- **`Params.AddInterface`**: removed; use `Params.AddAny`.
+
+---
+
+## Upgrading from v5 to v6
 
 ```go
 // Before
