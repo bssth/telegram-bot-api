@@ -132,7 +132,9 @@ func main() {
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
-	wh, _ := tgbotapi.NewWebhookWithCert("https://www.example.com:8443/"+bot.Token, tgbotapi.FilePath("cert.pem"))
+	wh, _ := tgbotapi.NewWebhookWithCert("https://www.example.com:8443/", tgbotapi.FilePath("cert.pem"))
+	wh.SecretToken = "12345678"
+	bot.WebhookSecretToken = wh.SecretToken
 
 	_, err = bot.Request(wh)
 	if err != nil {
@@ -148,7 +150,7 @@ func main() {
 		log.Printf("Telegram callback failed: %s", info.LastErrorMessage)
 	}
 
-	updates := bot.ListenForWebhook("/" + bot.Token)
+	updates := bot.ListenForWebhook("/")
 	go http.ListenAndServeTLS("0.0.0.0:8443", "cert.pem", "key.pem", nil)
 
 	for update := range updates {
