@@ -26,9 +26,22 @@ type BotAPI struct {
 	Debug  bool   `json:"debug"`
 	Buffer int    `json:"buffer"`
 
+	// MaxRetries is the maximum number of automatic retries on 429 Too Many
+	// Requests errors. When 0 (default), automatic retries are disabled.
+	// Uploads using FileReader cannot be replayed and will not be retried.
+	MaxRetries int `json:"max_retries"`
+
+	// MaxRetryAfter is an optional cap on the duration to wait before retrying
+	// when Telegram returns a retry_after flood limit. If retry_after exceeds
+	// MaxRetryAfter, the wait duration is capped to MaxRetryAfter. When 0
+	// (default), the full retry_after duration is waited.
+	MaxRetryAfter time.Duration `json:"max_retry_after"`
+
 	Self            User       `json:"-"`
 	Client          HTTPClient `json:"-"`
 	shutdownChannel chan interface{}
+
+	sleepFunc func(time.Duration)
 
 	apiEndpoint  string
 	fileEndpoint string
@@ -128,8 +141,61 @@ func closeBody(body io.ReadCloser) {
 	body.Close()
 }
 
+// IsTooManyRequests checks whether an error is a Telegram 429 Too Many Requests
+// (flood limit) error. If so, it returns the retry_after duration and ok = true.
+func IsTooManyRequests(err error) (retryAfter time.Duration, ok bool) {
+	var apiErr *Error
+	if errors.As(err, &apiErr) && apiErr.Code == http.StatusTooManyRequests {
+		return time.Duration(apiErr.RetryAfter) * time.Second, true
+	}
+	var valErr Error
+	if errors.As(err, &valErr) && valErr.Code == http.StatusTooManyRequests {
+		return time.Duration(valErr.RetryAfter) * time.Second, true
+	}
+	return 0, false
+}
+
+func (bot *BotAPI) sleepDuration(d time.Duration) {
+	if bot.sleepFunc != nil {
+		bot.sleepFunc(d)
+		return
+	}
+	time.Sleep(d)
+}
+
+func (bot *BotAPI) sleepRetryAfter(attempt int, err error) bool {
+	if attempt >= bot.MaxRetries {
+		return false
+	}
+	retryAfter, ok := IsTooManyRequests(err)
+	if !ok {
+		return false
+	}
+	wait := retryAfter
+	if bot.MaxRetryAfter > 0 && wait > bot.MaxRetryAfter {
+		wait = bot.MaxRetryAfter
+	}
+	if wait > 0 {
+		bot.sleepDuration(wait)
+	}
+	return true
+}
+
 // MakeRequest makes a request to a specific endpoint with our token.
+// When BotAPI.MaxRetries > 0, requests encountering HTTP 429 Too Many Requests
+// errors are automatically retried up to MaxRetries times after waiting the
+// retry_after period (capped by MaxRetryAfter if set).
 func (bot *BotAPI) MakeRequest(endpoint string, params Params) (*APIResponse, error) {
+	for attempt := 0; ; attempt++ {
+		resp, err := bot.makeRequestOnce(endpoint, params)
+		if err != nil && bot.sleepRetryAfter(attempt, err) {
+			continue
+		}
+		return resp, err
+	}
+}
+
+func (bot *BotAPI) makeRequestOnce(endpoint string, params Params) (*APIResponse, error) {
 	if bot.Debug {
 		log.Printf("Endpoint: %s, params: %v\n", endpoint, params)
 	}
@@ -201,8 +267,39 @@ func (bot *BotAPI) decodeAPIResponse(responseBody io.Reader, resp *APIResponse) 
 	return data, nil
 }
 
+// canReplayUploadFiles checks if files can be replayed in a retry.
+// Uploads from a FileReader stream cannot be replayed once read.
+func canReplayUploadFiles(files []RequestFile) bool {
+	for _, file := range files {
+		if file.Data == nil || !file.Data.NeedsUpload() {
+			continue
+		}
+		switch file.Data.(type) {
+		case FileReader, *FileReader:
+			return false
+		}
+	}
+	return true
+}
+
 // UploadFiles makes a request to the API with files.
+// When BotAPI.MaxRetries > 0, requests encountering HTTP 429 Too Many Requests
+// errors are automatically retried up to MaxRetries times after waiting the
+// retry_after period (capped by MaxRetryAfter if set), provided all files can
+// be replayed. Uploads containing a FileReader cannot be replayed once read and
+// will not be retried.
 func (bot *BotAPI) UploadFiles(endpoint string, params Params, files []RequestFile) (*APIResponse, error) {
+	replayable := canReplayUploadFiles(files)
+	for attempt := 0; ; attempt++ {
+		resp, err := bot.uploadFilesOnce(endpoint, params, files)
+		if err != nil && replayable && bot.sleepRetryAfter(attempt, err) {
+			continue
+		}
+		return resp, err
+	}
+}
+
+func (bot *BotAPI) uploadFilesOnce(endpoint string, params Params, files []RequestFile) (*APIResponse, error) {
 	r, w := io.Pipe()
 	m := multipart.NewWriter(w)
 
