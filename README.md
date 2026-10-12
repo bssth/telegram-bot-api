@@ -227,7 +227,8 @@ go run ./internal/cmd/specdiff       # add -v to also list non-spec extras
 ```
 
 The [Bot API spec](./.github/workflows/bot-api-spec.yml) workflow runs it
-weekly, so a new Bot API release shows up as a failed run.
+weekly and opens an issue automatically when a new Bot API version is
+released.
 
 ### Credits
 
