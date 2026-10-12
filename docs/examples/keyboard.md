@@ -47,6 +47,9 @@ func main() {
 		}
 
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, update.Message.Text)
+		msg.ReplyParameters = &tgbotapi.ReplyParameters{
+			MessageID: update.Message.MessageID,
+		}
 
 		switch update.Message.Text {
 		case "open":

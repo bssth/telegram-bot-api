@@ -39,11 +39,17 @@ func main() {
 		// Create a new MessageConfig. We don't have text yet,
 		// so we leave it empty.
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+		msg.ReplyParameters = &tgbotapi.ReplyParameters{
+			MessageID: update.Message.MessageID,
+		}
 
 		// Extract the command from the Message.
 		switch update.Message.Command() {
 		case "help":
-			msg.Text = "I understand /sayhi and /status."
+			msg.Text = "I understand /sayhi, /status, and /docs.\nVisit https://bssth.github.io/telegram-bot-api/ for documentation."
+			msg.LinkPreviewOptions = &tgbotapi.LinkPreviewOptions{
+				IsDisabled: false,
+			}
 		case "sayhi":
 			msg.Text = "Hi :)"
 		case "status":

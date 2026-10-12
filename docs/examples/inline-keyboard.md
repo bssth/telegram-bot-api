@@ -16,7 +16,7 @@ import (
 
 var numericKeyboard = tgbotapi.NewInlineKeyboardMarkup(
 	tgbotapi.NewInlineKeyboardRow(
-		tgbotapi.NewInlineKeyboardButtonURL("1.com", "http://1.com"),
+		tgbotapi.NewInlineKeyboardButtonURL("Documentation", "https://bssth.github.io/telegram-bot-api/"),
 		tgbotapi.NewInlineKeyboardButtonData("2", "2"),
 		tgbotapi.NewInlineKeyboardButtonData("3", "3"),
 	),
@@ -49,6 +49,9 @@ func main() {
 			// Construct a new message from the given chat ID and containing
 			// the text that we received.
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, update.Message.Text)
+			msg.ReplyParameters = &tgbotapi.ReplyParameters{
+				MessageID: update.Message.MessageID,
+			}
 
 			// If the message was open, add a copy of our numeric keyboard.
 			switch update.Message.Text {
@@ -70,9 +73,11 @@ func main() {
 			}
 
 			// And finally, send a message containing the data received.
-			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Data)
-			if _, err := bot.Send(msg); err != nil {
-				panic(err)
+			if update.CallbackQuery.Message != nil {
+				msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, update.CallbackQuery.Data)
+				if _, err := bot.Send(msg); err != nil {
+					panic(err)
+				}
 			}
 		}
 	}
