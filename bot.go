@@ -4,6 +4,7 @@ package tgbotapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,6 +31,7 @@ type BotAPI struct {
 	Self            User       `json:"-"`
 	Client          HTTPClient `json:"-"`
 	shutdownChannel chan interface{}
+	stopMu          sync.Mutex
 
 	apiEndpoint  string
 	fileEndpoint string
@@ -130,6 +133,15 @@ func closeBody(body io.ReadCloser) {
 
 // MakeRequest makes a request to a specific endpoint with our token.
 func (bot *BotAPI) MakeRequest(endpoint string, params Params) (*APIResponse, error) {
+	return bot.MakeRequestWithContext(context.Background(), endpoint, params)
+}
+
+// MakeRequestWithContext makes a request to a specific endpoint with our token and a context.
+func (bot *BotAPI) MakeRequestWithContext(ctx context.Context, endpoint string, params Params) (*APIResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	if bot.Debug {
 		log.Printf("Endpoint: %s, params: %v\n", endpoint, params)
 	}
@@ -138,7 +150,7 @@ func (bot *BotAPI) MakeRequest(endpoint string, params Params) (*APIResponse, er
 
 	values := buildParams(params)
 
-	req, err := http.NewRequest(http.MethodPost, method, strings.NewReader(values.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, method, strings.NewReader(values.Encode()))
 	if err != nil {
 		return &APIResponse{}, err
 	}
@@ -203,8 +215,27 @@ func (bot *BotAPI) decodeAPIResponse(responseBody io.Reader, resp *APIResponse) 
 
 // UploadFiles makes a request to the API with files.
 func (bot *BotAPI) UploadFiles(endpoint string, params Params, files []RequestFile) (*APIResponse, error) {
+	return bot.UploadFilesWithContext(context.Background(), endpoint, params, files)
+}
+
+// UploadFilesWithContext makes a request to the API with files and a context.
+func (bot *BotAPI) UploadFilesWithContext(ctx context.Context, endpoint string, params Params, files []RequestFile) (*APIResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	r, w := io.Pipe()
 	m := multipart.NewWriter(w)
+
+	pipeDone := make(chan struct{})
+	defer close(pipeDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = r.CloseWithError(ctx.Err())
+		case <-pipeDone:
+		}
+	}()
 
 	// This code modified from the very helpful @HirbodBehnam
 	// https://github.com/go-telegram-bot-api/telegram-bot-api/issues/354#issuecomment-663856473
@@ -261,8 +292,9 @@ func (bot *BotAPI) UploadFiles(endpoint string, params Params, files []RequestFi
 
 	method := fmt.Sprintf(bot.apiEndpoint, bot.Token, endpoint)
 
-	req, err := http.NewRequest(http.MethodPost, method, r)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, method, r)
 	if err != nil {
+		_ = r.Close()
 		return nil, err
 	}
 
@@ -270,6 +302,7 @@ func (bot *BotAPI) UploadFiles(endpoint string, params Params, files []RequestFi
 
 	resp, err := bot.Client.Do(req)
 	if err != nil {
+		_ = r.Close()
 		return nil, bot.redactToken(err)
 	}
 	defer closeBody(resp.Body)
@@ -305,8 +338,14 @@ func (bot *BotAPI) UploadFiles(endpoint string, params Params, files []RequestFi
 //
 // It requires the FileID.
 func (bot *BotAPI) GetFileDirectURL(fileID string) (string, error) {
-	file, err := bot.GetFile(FileConfig{fileID})
+	return bot.GetFileDirectURLWithContext(context.Background(), fileID)
+}
 
+// GetFileDirectURLWithContext returns direct URL to file with a context.
+//
+// It requires the FileID.
+func (bot *BotAPI) GetFileDirectURLWithContext(ctx context.Context, fileID string) (string, error) {
+	file, err := bot.GetFileWithContext(ctx, FileConfig{fileID})
 	if err != nil {
 		return "", err
 	}
@@ -320,7 +359,12 @@ func (bot *BotAPI) GetFileDirectURL(fileID string) (string, error) {
 // and so you may get this data from BotAPI.Self without the need for
 // another request.
 func (bot *BotAPI) GetMe() (User, error) {
-	resp, err := bot.MakeRequest("getMe", nil)
+	return bot.GetMeWithContext(context.Background())
+}
+
+// GetMeWithContext fetches the currently authenticated bot with a context.
+func (bot *BotAPI) GetMeWithContext(ctx context.Context) (User, error) {
+	resp, err := bot.MakeRequestWithContext(ctx, "getMe", nil)
 	if err != nil {
 		return User{}, err
 	}
@@ -348,8 +392,35 @@ func hasFilesNeedingUpload(files []RequestFile) bool {
 	return false
 }
 
+func (bot *BotAPI) getShutdownChannel() chan interface{} {
+	bot.stopMu.Lock()
+	defer bot.stopMu.Unlock()
+
+	if bot.shutdownChannel == nil {
+		bot.shutdownChannel = make(chan interface{})
+		return bot.shutdownChannel
+	}
+
+	select {
+	case <-bot.shutdownChannel:
+		bot.shutdownChannel = make(chan interface{})
+	default:
+	}
+
+	return bot.shutdownChannel
+}
+
 // Request sends a Chattable to Telegram, and returns the APIResponse.
 func (bot *BotAPI) Request(c Chattable) (*APIResponse, error) {
+	return bot.RequestWithContext(context.Background(), c)
+}
+
+// RequestWithContext sends a Chattable to Telegram with a context, and returns the APIResponse.
+func (bot *BotAPI) RequestWithContext(ctx context.Context, c Chattable) (*APIResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	params, err := c.params()
 	if err != nil {
 		return nil, err
@@ -359,9 +430,9 @@ func (bot *BotAPI) Request(c Chattable) (*APIResponse, error) {
 		files := t.files()
 
 		// If we have files that need to be uploaded, we should delegate the
-		// request to UploadFile.
+		// request to UploadFilesWithContext.
 		if hasFilesNeedingUpload(files) {
-			return bot.UploadFiles(t.method(), params, files)
+			return bot.UploadFilesWithContext(ctx, t.method(), params, files)
 		}
 
 		// However, if there are no files to be uploaded, there's likely things
@@ -371,7 +442,25 @@ func (bot *BotAPI) Request(c Chattable) (*APIResponse, error) {
 		}
 	}
 
-	return bot.MakeRequest(c.method(), params)
+	return bot.MakeRequestWithContext(ctx, c.method(), params)
+}
+
+// RequestTypedWithContext executes a Chattable request with a context and decodes the result into T.
+func RequestTypedWithContext[T any](ctx context.Context, bot *BotAPI, c Chattable) (T, error) {
+	resp, err := bot.RequestWithContext(ctx, c)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+
+	var result T
+	err = json.Unmarshal(resp.Result, &result)
+	return result, err
+}
+
+// RequestTyped executes a Chattable request and decodes the result into T.
+func RequestTyped[T any](bot *BotAPI, c Chattable) (T, error) {
+	return RequestTypedWithContext[T](context.Background(), bot, c)
 }
 
 // Send will send a Chattable item to Telegram and provides the
@@ -384,7 +473,13 @@ func (bot *BotAPI) Request(c Chattable) (*APIResponse, error) {
 // unmarshal error. Prefer Request for methods whose documented return
 // type is not a Message.
 func (bot *BotAPI) Send(c Chattable) (Message, error) {
-	resp, err := bot.Request(c)
+	return bot.SendWithContext(context.Background(), c)
+}
+
+// SendWithContext sends a Chattable item to Telegram with a context and provides the
+// returned Message.
+func (bot *BotAPI) SendWithContext(ctx context.Context, c Chattable) (Message, error) {
+	resp, err := bot.RequestWithContext(ctx, c)
 	if err != nil {
 		return Message{}, err
 	}
@@ -401,15 +496,12 @@ func (bot *BotAPI) Send(c Chattable) (Message, error) {
 
 // SendMediaGroup sends a media group and returns the resulting messages.
 func (bot *BotAPI) SendMediaGroup(config MediaGroupConfig) ([]Message, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return nil, err
-	}
+	return bot.SendMediaGroupWithContext(context.Background(), config)
+}
 
-	var messages []Message
-	err = json.Unmarshal(resp.Result, &messages)
-
-	return messages, err
+// SendMediaGroupWithContext sends a media group with a context and returns the resulting messages.
+func (bot *BotAPI) SendMediaGroupWithContext(ctx context.Context, config MediaGroupConfig) ([]Message, error) {
+	return RequestTypedWithContext[[]Message](ctx, bot, config)
 }
 
 // GetUserProfilePhotos gets a user's profile photos.
@@ -417,30 +509,24 @@ func (bot *BotAPI) SendMediaGroup(config MediaGroupConfig) ([]Message, error) {
 // It requires UserID.
 // Offset and Limit are optional.
 func (bot *BotAPI) GetUserProfilePhotos(config UserProfilePhotosConfig) (UserProfilePhotos, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return UserProfilePhotos{}, err
-	}
+	return bot.GetUserProfilePhotosWithContext(context.Background(), config)
+}
 
-	var profilePhotos UserProfilePhotos
-	err = json.Unmarshal(resp.Result, &profilePhotos)
-
-	return profilePhotos, err
+// GetUserProfilePhotosWithContext gets a user's profile photos with a context.
+func (bot *BotAPI) GetUserProfilePhotosWithContext(ctx context.Context, config UserProfilePhotosConfig) (UserProfilePhotos, error) {
+	return RequestTypedWithContext[UserProfilePhotos](ctx, bot, config)
 }
 
 // GetFile returns a File which can download a file from Telegram.
 //
 // Requires FileID.
 func (bot *BotAPI) GetFile(config FileConfig) (File, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return File{}, err
-	}
+	return bot.GetFileWithContext(context.Background(), config)
+}
 
-	var file File
-	err = json.Unmarshal(resp.Result, &file)
-
-	return file, err
+// GetFileWithContext returns a File which can download a file from Telegram with a context.
+func (bot *BotAPI) GetFileWithContext(ctx context.Context, config FileConfig) (File, error) {
+	return RequestTypedWithContext[File](ctx, bot, config)
 }
 
 // GetUpdates fetches updates.
@@ -451,7 +537,12 @@ func (bot *BotAPI) GetFile(config FileConfig) (File, error) {
 // Set Timeout to a large number to reduce requests, so you can get updates
 // instantly instead of having to wait between requests.
 func (bot *BotAPI) GetUpdates(config UpdateConfig) ([]Update, error) {
-	resp, err := bot.Request(config)
+	return bot.GetUpdatesWithContext(context.Background(), config)
+}
+
+// GetUpdatesWithContext fetches updates with a context.
+func (bot *BotAPI) GetUpdatesWithContext(ctx context.Context, config UpdateConfig) ([]Update, error) {
+	resp, err := bot.RequestWithContext(ctx, config)
 	if err != nil {
 		return []Update{}, err
 	}
@@ -465,7 +556,12 @@ func (bot *BotAPI) GetUpdates(config UpdateConfig) ([]Update, error) {
 // GetWebhookInfo allows you to fetch information about a webhook and if
 // one currently is set, along with pending update count and error messages.
 func (bot *BotAPI) GetWebhookInfo() (WebhookInfo, error) {
-	resp, err := bot.MakeRequest("getWebhookInfo", nil)
+	return bot.GetWebhookInfoWithContext(context.Background())
+}
+
+// GetWebhookInfoWithContext allows you to fetch information about a webhook with a context.
+func (bot *BotAPI) GetWebhookInfoWithContext(ctx context.Context) (WebhookInfo, error) {
+	resp, err := bot.MakeRequestWithContext(ctx, "getWebhookInfo", nil)
 	if err != nil {
 		return WebhookInfo{}, err
 	}
@@ -478,26 +574,60 @@ func (bot *BotAPI) GetWebhookInfo() (WebhookInfo, error) {
 
 // GetUpdatesChan starts and returns a channel for getting updates.
 func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) UpdatesChannel {
+	return bot.GetUpdatesChanWithContext(context.Background(), config)
+}
+
+// GetUpdatesChanWithContext starts and returns a channel for getting updates with a context.
+// Cancelling ctx aborts the current long poll and closes the channel.
+func (bot *BotAPI) GetUpdatesChanWithContext(ctx context.Context, config UpdateConfig) UpdatesChannel {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	ch := make(chan Update, bot.Buffer)
 
+	pollCtx, pollCancel := context.WithCancel(ctx)
+	stopCh := bot.getShutdownChannel()
+
 	go func() {
+		select {
+		case <-stopCh:
+			pollCancel()
+		case <-pollCtx.Done():
+		}
+	}()
+
+	go func() {
+		defer close(ch)
+		defer pollCancel()
+
 		for {
 			select {
-			case <-bot.shutdownChannel:
-				close(ch)
+			case <-pollCtx.Done():
 				return
 			default:
 			}
 
-			updates, err := bot.GetUpdates(config)
+			updates, err := bot.GetUpdatesWithContext(pollCtx, config)
 			if err != nil {
+				if pollCtx.Err() != nil {
+					return
+				}
+
 				// Network errors from http.Post embed the full request URL,
 				// which in our case contains bot.Token. Strip it before
 				// logging so the token can't leak to logs.
 				redacted := strings.ReplaceAll(err.Error(), bot.Token, "<token>")
 				log.Println(redacted)
 				log.Println("Failed to get updates, retrying in 3 seconds...")
-				time.Sleep(time.Second * 3)
+
+				timer := time.NewTimer(time.Second * 3)
+				select {
+				case <-pollCtx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
 
 				continue
 			}
@@ -505,7 +635,11 @@ func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) UpdatesChannel {
 			for _, update := range updates {
 				if update.UpdateID >= config.Offset {
 					config.Offset = update.UpdateID + 1
-					ch <- update
+					select {
+					case <-pollCtx.Done():
+						return
+					case ch <- update:
+					}
 				}
 			}
 		}
@@ -514,12 +648,26 @@ func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) UpdatesChannel {
 	return ch
 }
 
-// StopReceivingUpdates stops the go routine which receives updates
+// StopReceivingUpdates stops the go routine which receives updates.
+// It is idempotent; calling it multiple times is safe.
 func (bot *BotAPI) StopReceivingUpdates() {
 	if bot.Debug {
 		log.Println("Stopping the update receiver routine...")
 	}
-	close(bot.shutdownChannel)
+
+	bot.stopMu.Lock()
+	defer bot.stopMu.Unlock()
+
+	if bot.shutdownChannel == nil {
+		return
+	}
+
+	select {
+	case <-bot.shutdownChannel:
+		// already closed
+	default:
+		close(bot.shutdownChannel)
+	}
 }
 
 // ListenForWebhook registers a http handler for a webhook.
@@ -611,15 +759,12 @@ func WriteToHTTPResponse(w http.ResponseWriter, c Chattable) error {
 // As of Bot API 7.3 the return type is ChatFullInfo, which embeds Chat and
 // adds the fields that are only populated by getChat.
 func (bot *BotAPI) GetChat(config ChatInfoConfig) (ChatFullInfo, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return ChatFullInfo{}, err
-	}
+	return bot.GetChatWithContext(context.Background(), config)
+}
 
-	var info ChatFullInfo
-	err = json.Unmarshal(resp.Result, &info)
-
-	return info, err
+// GetChatWithContext gets full information about a chat with a context.
+func (bot *BotAPI) GetChatWithContext(ctx context.Context, config ChatInfoConfig) (ChatFullInfo, error) {
+	return RequestTypedWithContext[ChatFullInfo](ctx, bot, config)
 }
 
 // GetChatAdministrators gets a list of administrators in the chat.
@@ -627,15 +772,12 @@ func (bot *BotAPI) GetChat(config ChatInfoConfig) (ChatFullInfo, error) {
 // If none have been appointed, only the creator will be returned.
 // Bots are not shown, even if they are an administrator.
 func (bot *BotAPI) GetChatAdministrators(config ChatAdministratorsConfig) ([]ChatMember, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return []ChatMember{}, err
-	}
+	return bot.GetChatAdministratorsWithContext(context.Background(), config)
+}
 
-	var members []ChatMember
-	err = json.Unmarshal(resp.Result, &members)
-
-	return members, err
+// GetChatAdministratorsWithContext gets a list of administrators in the chat with a context.
+func (bot *BotAPI) GetChatAdministratorsWithContext(ctx context.Context, config ChatAdministratorsConfig) ([]ChatMember, error) {
+	return RequestTypedWithContext[[]ChatMember](ctx, bot, config)
 }
 
 // GetChatMembersCount gets the number of users in a chat.
@@ -645,9 +787,21 @@ func (bot *BotAPI) GetChatMembersCount(config ChatMemberCountConfig) (int, error
 	return bot.GetChatMemberCount(config)
 }
 
+// GetChatMembersCountWithContext gets the number of users in a chat with a context.
+//
+// Deprecated: use GetChatMemberCountWithContext, which matches the Bot API method name.
+func (bot *BotAPI) GetChatMembersCountWithContext(ctx context.Context, config ChatMemberCountConfig) (int, error) {
+	return bot.GetChatMemberCountWithContext(ctx, config)
+}
+
 // GetChatMemberCount gets the number of members in a chat.
 func (bot *BotAPI) GetChatMemberCount(config ChatMemberCountConfig) (int, error) {
-	resp, err := bot.Request(config)
+	return bot.GetChatMemberCountWithContext(context.Background(), config)
+}
+
+// GetChatMemberCountWithContext gets the number of members in a chat with a context.
+func (bot *BotAPI) GetChatMemberCountWithContext(ctx context.Context, config ChatMemberCountConfig) (int, error) {
+	resp, err := bot.RequestWithContext(ctx, config)
 	if err != nil {
 		return -1, err
 	}
@@ -660,510 +814,424 @@ func (bot *BotAPI) GetChatMemberCount(config ChatMemberCountConfig) (int, error)
 
 // GetChatMember gets a specific chat member.
 func (bot *BotAPI) GetChatMember(config GetChatMemberConfig) (ChatMember, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return ChatMember{}, err
-	}
+	return bot.GetChatMemberWithContext(context.Background(), config)
+}
 
-	var member ChatMember
-	err = json.Unmarshal(resp.Result, &member)
-
-	return member, err
+// GetChatMemberWithContext gets a specific chat member with a context.
+func (bot *BotAPI) GetChatMemberWithContext(ctx context.Context, config GetChatMemberConfig) (ChatMember, error) {
+	return RequestTypedWithContext[ChatMember](ctx, bot, config)
 }
 
 // GetGameHighScores allows you to get the high scores for a game.
 func (bot *BotAPI) GetGameHighScores(config GetGameHighScoresConfig) ([]GameHighScore, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return []GameHighScore{}, err
-	}
+	return bot.GetGameHighScoresWithContext(context.Background(), config)
+}
 
-	var highScores []GameHighScore
-	err = json.Unmarshal(resp.Result, &highScores)
-
-	return highScores, err
+// GetGameHighScoresWithContext allows you to get the high scores for a game with a context.
+func (bot *BotAPI) GetGameHighScoresWithContext(ctx context.Context, config GetGameHighScoresConfig) ([]GameHighScore, error) {
+	return RequestTypedWithContext[[]GameHighScore](ctx, bot, config)
 }
 
 // GetInviteLink get InviteLink for a chat
 func (bot *BotAPI) GetInviteLink(config ChatInviteLinkConfig) (string, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return "", err
-	}
+	return bot.GetInviteLinkWithContext(context.Background(), config)
+}
 
-	var inviteLink string
-	err = json.Unmarshal(resp.Result, &inviteLink)
-
-	return inviteLink, err
+// GetInviteLinkWithContext get InviteLink for a chat with a context.
+func (bot *BotAPI) GetInviteLinkWithContext(ctx context.Context, config ChatInviteLinkConfig) (string, error) {
+	return RequestTypedWithContext[string](ctx, bot, config)
 }
 
 // GetStickerSet returns a StickerSet.
 func (bot *BotAPI) GetStickerSet(config GetStickerSetConfig) (StickerSet, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return StickerSet{}, err
-	}
+	return bot.GetStickerSetWithContext(context.Background(), config)
+}
 
-	var stickers StickerSet
-	err = json.Unmarshal(resp.Result, &stickers)
-
-	return stickers, err
+// GetStickerSetWithContext returns a StickerSet with a context.
+func (bot *BotAPI) GetStickerSetWithContext(ctx context.Context, config GetStickerSetConfig) (StickerSet, error) {
+	return RequestTypedWithContext[StickerSet](ctx, bot, config)
 }
 
 // GetCustomEmojiStickers returns information about custom emoji stickers by their identifiers.
 func (bot *BotAPI) GetCustomEmojiStickers(config GetCustomEmojiStickersConfig) ([]Sticker, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return nil, err
-	}
+	return bot.GetCustomEmojiStickersWithContext(context.Background(), config)
+}
 
-	var stickers []Sticker
-	err = json.Unmarshal(resp.Result, &stickers)
-
-	return stickers, err
+// GetCustomEmojiStickersWithContext returns information about custom emoji stickers by their identifiers with a context.
+func (bot *BotAPI) GetCustomEmojiStickersWithContext(ctx context.Context, config GetCustomEmojiStickersConfig) ([]Sticker, error) {
+	return RequestTypedWithContext[[]Sticker](ctx, bot, config)
 }
 
 // CreateForumTopic creates a topic in a forum supergroup chat and returns
 // information about the created topic.
 func (bot *BotAPI) CreateForumTopic(config CreateForumTopicConfig) (ForumTopic, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return ForumTopic{}, err
-	}
+	return bot.CreateForumTopicWithContext(context.Background(), config)
+}
 
-	var topic ForumTopic
-	err = json.Unmarshal(resp.Result, &topic)
-
-	return topic, err
+// CreateForumTopicWithContext creates a topic in a forum supergroup chat and returns
+// information about the created topic with a context.
+func (bot *BotAPI) CreateForumTopicWithContext(ctx context.Context, config CreateForumTopicConfig) (ForumTopic, error) {
+	return RequestTypedWithContext[ForumTopic](ctx, bot, config)
 }
 
 // GetForumTopicIconStickers returns custom emoji stickers, which can be used
 // as a forum topic icon by any user.
 func (bot *BotAPI) GetForumTopicIconStickers() ([]Sticker, error) {
-	resp, err := bot.Request(GetForumTopicIconStickersConfig{})
-	if err != nil {
-		return nil, err
-	}
+	return bot.GetForumTopicIconStickersWithContext(context.Background())
+}
 
-	var stickers []Sticker
-	err = json.Unmarshal(resp.Result, &stickers)
-
-	return stickers, err
+// GetForumTopicIconStickersWithContext returns custom emoji stickers, which can be used
+// as a forum topic icon by any user with a context.
+func (bot *BotAPI) GetForumTopicIconStickersWithContext(ctx context.Context) ([]Sticker, error) {
+	return RequestTypedWithContext[[]Sticker](ctx, bot, GetForumTopicIconStickersConfig{})
 }
 
 // GetUserChatBoosts returns the list of boosts added to a chat by a user.
 func (bot *BotAPI) GetUserChatBoosts(config GetUserChatBoostsConfig) (UserChatBoosts, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return UserChatBoosts{}, err
-	}
+	return bot.GetUserChatBoostsWithContext(context.Background(), config)
+}
 
-	var boosts UserChatBoosts
-	err = json.Unmarshal(resp.Result, &boosts)
-
-	return boosts, err
+// GetUserChatBoostsWithContext returns the list of boosts added to a chat by a user with a context.
+func (bot *BotAPI) GetUserChatBoostsWithContext(ctx context.Context, config GetUserChatBoostsConfig) (UserChatBoosts, error) {
+	return RequestTypedWithContext[UserChatBoosts](ctx, bot, config)
 }
 
 // ForwardMessages forwards multiple messages of any kind and returns the
 // identifiers of the sent messages.
 func (bot *BotAPI) ForwardMessages(config ForwardMessagesConfig) ([]MessageID, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return nil, err
-	}
+	return bot.ForwardMessagesWithContext(context.Background(), config)
+}
 
-	var ids []MessageID
-	err = json.Unmarshal(resp.Result, &ids)
-
-	return ids, err
+// ForwardMessagesWithContext forwards multiple messages of any kind and returns the
+// identifiers of the sent messages with a context.
+func (bot *BotAPI) ForwardMessagesWithContext(ctx context.Context, config ForwardMessagesConfig) ([]MessageID, error) {
+	return RequestTypedWithContext[[]MessageID](ctx, bot, config)
 }
 
 // CopyMessages copies messages of any kind and returns the identifiers of
 // the sent messages.
 func (bot *BotAPI) CopyMessages(config CopyMessagesConfig) ([]MessageID, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return nil, err
-	}
+	return bot.CopyMessagesWithContext(context.Background(), config)
+}
 
-	var ids []MessageID
-	err = json.Unmarshal(resp.Result, &ids)
-
-	return ids, err
+// CopyMessagesWithContext copies messages of any kind and returns the identifiers of
+// the sent messages with a context.
+func (bot *BotAPI) CopyMessagesWithContext(ctx context.Context, config CopyMessagesConfig) ([]MessageID, error) {
+	return RequestTypedWithContext[[]MessageID](ctx, bot, config)
 }
 
 // GetAvailableGifts returns the list of gifts that can be sent by the bot
 // to users.
 func (bot *BotAPI) GetAvailableGifts() (Gifts, error) {
-	resp, err := bot.Request(GetAvailableGiftsConfig{})
-	if err != nil {
-		return Gifts{}, err
-	}
+	return bot.GetAvailableGiftsWithContext(context.Background())
+}
 
-	var gifts Gifts
-	err = json.Unmarshal(resp.Result, &gifts)
-
-	return gifts, err
+// GetAvailableGiftsWithContext returns the list of gifts that can be sent by the bot
+// to users with a context.
+func (bot *BotAPI) GetAvailableGiftsWithContext(ctx context.Context) (Gifts, error) {
+	return RequestTypedWithContext[Gifts](ctx, bot, GetAvailableGiftsConfig{})
 }
 
 // SavePreparedInlineMessage stores a message that can be sent by a user of
 // a Mini App and returns a PreparedInlineMessage.
 func (bot *BotAPI) SavePreparedInlineMessage(config SavePreparedInlineMessageConfig) (PreparedInlineMessage, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return PreparedInlineMessage{}, err
-	}
+	return bot.SavePreparedInlineMessageWithContext(context.Background(), config)
+}
 
-	var msg PreparedInlineMessage
-	err = json.Unmarshal(resp.Result, &msg)
-
-	return msg, err
+// SavePreparedInlineMessageWithContext stores a message that can be sent by a user of
+// a Mini App and returns a PreparedInlineMessage with a context.
+func (bot *BotAPI) SavePreparedInlineMessageWithContext(ctx context.Context, config SavePreparedInlineMessageConfig) (PreparedInlineMessage, error) {
+	return RequestTypedWithContext[PreparedInlineMessage](ctx, bot, config)
 }
 
 // GetStarTransactions returns the bot's Telegram Star transactions in
 // chronological order.
 func (bot *BotAPI) GetStarTransactions(config GetStarTransactionsConfig) (StarTransactions, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return StarTransactions{}, err
-	}
+	return bot.GetStarTransactionsWithContext(context.Background(), config)
+}
 
-	var st StarTransactions
-	err = json.Unmarshal(resp.Result, &st)
-
-	return st, err
+// GetStarTransactionsWithContext returns the bot's Telegram Star transactions in
+// chronological order with a context.
+func (bot *BotAPI) GetStarTransactionsWithContext(ctx context.Context, config GetStarTransactionsConfig) (StarTransactions, error) {
+	return RequestTypedWithContext[StarTransactions](ctx, bot, config)
 }
 
 // GetUserProfileAudios fetches a list of audios added to the profile of
 // a user.
 func (bot *BotAPI) GetUserProfileAudios(config GetUserProfileAudiosConfig) (UserProfileAudios, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return UserProfileAudios{}, err
-	}
+	return bot.GetUserProfileAudiosWithContext(context.Background(), config)
+}
 
-	var audios UserProfileAudios
-	err = json.Unmarshal(resp.Result, &audios)
-
-	return audios, err
+// GetUserProfileAudiosWithContext fetches a list of audios added to the profile of
+// a user with a context.
+func (bot *BotAPI) GetUserProfileAudiosWithContext(ctx context.Context, config GetUserProfileAudiosConfig) (UserProfileAudios, error) {
+	return RequestTypedWithContext[UserProfileAudios](ctx, bot, config)
 }
 
 // GetMyStarBalance returns the current Telegram Stars balance of the bot.
 func (bot *BotAPI) GetMyStarBalance() (StarAmount, error) {
-	resp, err := bot.Request(GetMyStarBalanceConfig{})
-	if err != nil {
-		return StarAmount{}, err
-	}
+	return bot.GetMyStarBalanceWithContext(context.Background())
+}
 
-	var amount StarAmount
-	err = json.Unmarshal(resp.Result, &amount)
-
-	return amount, err
+// GetMyStarBalanceWithContext returns the current Telegram Stars balance of the bot with a context.
+func (bot *BotAPI) GetMyStarBalanceWithContext(ctx context.Context) (StarAmount, error) {
+	return RequestTypedWithContext[StarAmount](ctx, bot, GetMyStarBalanceConfig{})
 }
 
 // GetBusinessAccountStarBalance returns the amount of Telegram Stars owned
 // by a managed business account.
 func (bot *BotAPI) GetBusinessAccountStarBalance(config GetBusinessAccountStarBalanceConfig) (StarAmount, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return StarAmount{}, err
-	}
+	return bot.GetBusinessAccountStarBalanceWithContext(context.Background(), config)
+}
 
-	var amount StarAmount
-	err = json.Unmarshal(resp.Result, &amount)
-
-	return amount, err
+// GetBusinessAccountStarBalanceWithContext returns the amount of Telegram Stars owned
+// by a managed business account with a context.
+func (bot *BotAPI) GetBusinessAccountStarBalanceWithContext(ctx context.Context, config GetBusinessAccountStarBalanceConfig) (StarAmount, error) {
+	return RequestTypedWithContext[StarAmount](ctx, bot, config)
 }
 
 // GetUserGifts returns the list of gifts received and owned by a user.
 func (bot *BotAPI) GetUserGifts(config GetUserGiftsConfig) (OwnedGifts, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return OwnedGifts{}, err
-	}
+	return bot.GetUserGiftsWithContext(context.Background(), config)
+}
 
-	var gifts OwnedGifts
-	err = json.Unmarshal(resp.Result, &gifts)
-
-	return gifts, err
+// GetUserGiftsWithContext returns the list of gifts received and owned by a user with a context.
+func (bot *BotAPI) GetUserGiftsWithContext(ctx context.Context, config GetUserGiftsConfig) (OwnedGifts, error) {
+	return RequestTypedWithContext[OwnedGifts](ctx, bot, config)
 }
 
 // GetChatGifts returns the list of gifts received and owned by a chat.
 func (bot *BotAPI) GetChatGifts(config GetChatGiftsConfig) (OwnedGifts, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return OwnedGifts{}, err
-	}
+	return bot.GetChatGiftsWithContext(context.Background(), config)
+}
 
-	var gifts OwnedGifts
-	err = json.Unmarshal(resp.Result, &gifts)
-
-	return gifts, err
+// GetChatGiftsWithContext returns the list of gifts received and owned by a chat with a context.
+func (bot *BotAPI) GetChatGiftsWithContext(ctx context.Context, config GetChatGiftsConfig) (OwnedGifts, error) {
+	return RequestTypedWithContext[OwnedGifts](ctx, bot, config)
 }
 
 // RepostStory reposts a story across different business accounts managed
 // by the bot and returns the newly posted Story.
 func (bot *BotAPI) RepostStory(config RepostStoryConfig) (Story, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return Story{}, err
-	}
+	return bot.RepostStoryWithContext(context.Background(), config)
+}
 
-	var story Story
-	err = json.Unmarshal(resp.Result, &story)
-
-	return story, err
+// RepostStoryWithContext reposts a story across different business accounts managed
+// by the bot and returns the newly posted Story with a context.
+func (bot *BotAPI) RepostStoryWithContext(ctx context.Context, config RepostStoryConfig) (Story, error) {
+	return RequestTypedWithContext[Story](ctx, bot, config)
 }
 
 // GetBusinessAccountGifts returns the gifts received and owned by a managed
 // business account.
 func (bot *BotAPI) GetBusinessAccountGifts(config GetBusinessAccountGiftsConfig) (OwnedGifts, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return OwnedGifts{}, err
-	}
+	return bot.GetBusinessAccountGiftsWithContext(context.Background(), config)
+}
 
-	var gifts OwnedGifts
-	err = json.Unmarshal(resp.Result, &gifts)
-
-	return gifts, err
+// GetBusinessAccountGiftsWithContext returns the gifts received and owned by a managed
+// business account with a context.
+func (bot *BotAPI) GetBusinessAccountGiftsWithContext(ctx context.Context, config GetBusinessAccountGiftsConfig) (OwnedGifts, error) {
+	return RequestTypedWithContext[OwnedGifts](ctx, bot, config)
 }
 
 // PostStory posts a story on behalf of a managed business account and
 // returns the posted Story.
 func (bot *BotAPI) PostStory(config PostStoryConfig) (Story, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return Story{}, err
-	}
+	return bot.PostStoryWithContext(context.Background(), config)
+}
 
-	var story Story
-	err = json.Unmarshal(resp.Result, &story)
-
-	return story, err
+// PostStoryWithContext posts a story on behalf of a managed business account and
+// returns the posted Story with a context.
+func (bot *BotAPI) PostStoryWithContext(ctx context.Context, config PostStoryConfig) (Story, error) {
+	return RequestTypedWithContext[Story](ctx, bot, config)
 }
 
 // EditStory edits a story previously posted by the bot and returns the
 // edited Story.
 func (bot *BotAPI) EditStory(config EditStoryConfig) (Story, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return Story{}, err
-	}
+	return bot.EditStoryWithContext(context.Background(), config)
+}
 
-	var story Story
-	err = json.Unmarshal(resp.Result, &story)
-
-	return story, err
+// EditStoryWithContext edits a story previously posted by the bot and returns the
+// edited Story with a context.
+func (bot *BotAPI) EditStoryWithContext(ctx context.Context, config EditStoryConfig) (Story, error) {
+	return RequestTypedWithContext[Story](ctx, bot, config)
 }
 
 // GetBusinessConnection returns information about the connection of the bot
 // with a business account.
 func (bot *BotAPI) GetBusinessConnection(config GetBusinessConnectionConfig) (BusinessConnection, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return BusinessConnection{}, err
-	}
+	return bot.GetBusinessConnectionWithContext(context.Background(), config)
+}
 
-	var bc BusinessConnection
-	err = json.Unmarshal(resp.Result, &bc)
-
-	return bc, err
+// GetBusinessConnectionWithContext returns information about the connection of the bot
+// with a business account with a context.
+func (bot *BotAPI) GetBusinessConnectionWithContext(ctx context.Context, config GetBusinessConnectionConfig) (BusinessConnection, error) {
+	return RequestTypedWithContext[BusinessConnection](ctx, bot, config)
 }
 
 // GetMyName returns the current bot name for the given user language.
 func (bot *BotAPI) GetMyName(config GetMyNameConfig) (BotName, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return BotName{}, err
-	}
+	return bot.GetMyNameWithContext(context.Background(), config)
+}
 
-	var name BotName
-	err = json.Unmarshal(resp.Result, &name)
-
-	return name, err
+// GetMyNameWithContext returns the current bot name for the given user language with a context.
+func (bot *BotAPI) GetMyNameWithContext(ctx context.Context, config GetMyNameConfig) (BotName, error) {
+	return RequestTypedWithContext[BotName](ctx, bot, config)
 }
 
 // GetMyDescription returns the current bot description for the given user language.
 func (bot *BotAPI) GetMyDescription(config GetMyDescriptionConfig) (BotDescription, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return BotDescription{}, err
-	}
+	return bot.GetMyDescriptionWithContext(context.Background(), config)
+}
 
-	var desc BotDescription
-	err = json.Unmarshal(resp.Result, &desc)
-
-	return desc, err
+// GetMyDescriptionWithContext returns the current bot description for the given user language with a context.
+func (bot *BotAPI) GetMyDescriptionWithContext(ctx context.Context, config GetMyDescriptionConfig) (BotDescription, error) {
+	return RequestTypedWithContext[BotDescription](ctx, bot, config)
 }
 
 // GetMyShortDescription returns the current bot short description for the
 // given user language.
 func (bot *BotAPI) GetMyShortDescription(config GetMyShortDescriptionConfig) (BotShortDescription, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return BotShortDescription{}, err
-	}
+	return bot.GetMyShortDescriptionWithContext(context.Background(), config)
+}
 
-	var desc BotShortDescription
-	err = json.Unmarshal(resp.Result, &desc)
-
-	return desc, err
+// GetMyShortDescriptionWithContext returns the current bot short description for the
+// given user language with a context.
+func (bot *BotAPI) GetMyShortDescriptionWithContext(ctx context.Context, config GetMyShortDescriptionConfig) (BotShortDescription, error) {
+	return RequestTypedWithContext[BotShortDescription](ctx, bot, config)
 }
 
 // StopPoll stops a poll and returns the result.
 func (bot *BotAPI) StopPoll(config StopPollConfig) (Poll, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return Poll{}, err
-	}
+	return bot.StopPollWithContext(context.Background(), config)
+}
 
-	var poll Poll
-	err = json.Unmarshal(resp.Result, &poll)
-
-	return poll, err
+// StopPollWithContext stops a poll and returns the result with a context.
+func (bot *BotAPI) StopPollWithContext(ctx context.Context, config StopPollConfig) (Poll, error) {
+	return RequestTypedWithContext[Poll](ctx, bot, config)
 }
 
 // GetMyCommands gets the currently registered commands.
 func (bot *BotAPI) GetMyCommands() ([]BotCommand, error) {
-	return bot.GetMyCommandsWithConfig(GetMyCommandsConfig{})
+	return bot.GetMyCommandsWithContext(context.Background())
+}
+
+// GetMyCommandsWithContext gets the currently registered commands with a context.
+func (bot *BotAPI) GetMyCommandsWithContext(ctx context.Context) ([]BotCommand, error) {
+	return bot.GetMyCommandsWithConfigWithContext(ctx, GetMyCommandsConfig{})
 }
 
 // GetMyCommandsWithConfig gets the currently registered commands with a config.
 func (bot *BotAPI) GetMyCommandsWithConfig(config GetMyCommandsConfig) ([]BotCommand, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return nil, err
-	}
+	return bot.GetMyCommandsWithConfigWithContext(context.Background(), config)
+}
 
-	var commands []BotCommand
-	err = json.Unmarshal(resp.Result, &commands)
-
-	return commands, err
+// GetMyCommandsWithConfigWithContext gets the currently registered commands with a config and context.
+func (bot *BotAPI) GetMyCommandsWithConfigWithContext(ctx context.Context, config GetMyCommandsConfig) ([]BotCommand, error) {
+	return RequestTypedWithContext[[]BotCommand](ctx, bot, config)
 }
 
 // CopyMessage copy messages of any kind. The method is analogous to the method
 // forwardMessage, but the copied message doesn't have a link to the original
 // message. Returns the MessageID of the sent message on success.
 func (bot *BotAPI) CopyMessage(config CopyMessageConfig) (MessageID, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return MessageID{}, err
-	}
+	return bot.CopyMessageWithContext(context.Background(), config)
+}
 
-	var messageID MessageID
-	err = json.Unmarshal(resp.Result, &messageID)
-
-	return messageID, err
+// CopyMessageWithContext copy messages of any kind with a context.
+func (bot *BotAPI) CopyMessageWithContext(ctx context.Context, config CopyMessageConfig) (MessageID, error) {
+	return RequestTypedWithContext[MessageID](ctx, bot, config)
 }
 
 // AnswerWebAppQuery sets the result of an interaction with a Web App and send a
 // corresponding message on behalf of the user to the chat from which the query originated.
 func (bot *BotAPI) AnswerWebAppQuery(config AnswerWebAppQueryConfig) (SentWebAppMessage, error) {
-	var sentWebAppMessage SentWebAppMessage
+	return bot.AnswerWebAppQueryWithContext(context.Background(), config)
+}
 
-	resp, err := bot.Request(config)
-	if err != nil {
-		return sentWebAppMessage, err
-	}
-
-	err = json.Unmarshal(resp.Result, &sentWebAppMessage)
-	return sentWebAppMessage, err
+// AnswerWebAppQueryWithContext sets the result of an interaction with a Web App and send a
+// corresponding message on behalf of the user to the chat from which the query originated with a context.
+func (bot *BotAPI) AnswerWebAppQueryWithContext(ctx context.Context, config AnswerWebAppQueryConfig) (SentWebAppMessage, error) {
+	return RequestTypedWithContext[SentWebAppMessage](ctx, bot, config)
 }
 
 // GetMyDefaultAdministratorRights gets the current default administrator rights of the bot.
 func (bot *BotAPI) GetMyDefaultAdministratorRights(config GetMyDefaultAdministratorRightsConfig) (ChatAdministratorRights, error) {
-	var rights ChatAdministratorRights
+	return bot.GetMyDefaultAdministratorRightsWithContext(context.Background(), config)
+}
 
-	resp, err := bot.Request(config)
-	if err != nil {
-		return rights, err
-	}
-
-	err = json.Unmarshal(resp.Result, &rights)
-	return rights, err
+// GetMyDefaultAdministratorRightsWithContext gets the current default administrator rights of the bot with a context.
+func (bot *BotAPI) GetMyDefaultAdministratorRightsWithContext(ctx context.Context, config GetMyDefaultAdministratorRightsConfig) (ChatAdministratorRights, error) {
+	return RequestTypedWithContext[ChatAdministratorRights](ctx, bot, config)
 }
 
 // GetManagedBotToken returns the token of a managed bot.
 func (bot *BotAPI) GetManagedBotToken(config GetManagedBotTokenConfig) (string, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return "", err
-	}
+	return bot.GetManagedBotTokenWithContext(context.Background(), config)
+}
 
-	var token string
-	err = json.Unmarshal(resp.Result, &token)
-
-	return token, err
+// GetManagedBotTokenWithContext returns the token of a managed bot with a context.
+func (bot *BotAPI) GetManagedBotTokenWithContext(ctx context.Context, config GetManagedBotTokenConfig) (string, error) {
+	return RequestTypedWithContext[string](ctx, bot, config)
 }
 
 // ReplaceManagedBotToken revokes the current token of a managed bot
 // and generates a new one. Returns the new token.
 func (bot *BotAPI) ReplaceManagedBotToken(config ReplaceManagedBotTokenConfig) (string, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return "", err
-	}
+	return bot.ReplaceManagedBotTokenWithContext(context.Background(), config)
+}
 
-	var token string
-	err = json.Unmarshal(resp.Result, &token)
-
-	return token, err
+// ReplaceManagedBotTokenWithContext revokes the current token of a managed bot
+// and generates a new one with a context. Returns the new token.
+func (bot *BotAPI) ReplaceManagedBotTokenWithContext(ctx context.Context, config ReplaceManagedBotTokenConfig) (string, error) {
+	return RequestTypedWithContext[string](ctx, bot, config)
 }
 
 // SavePreparedKeyboardButton stores a keyboard button that can be used
 // by a user within a Mini App. Returns a PreparedKeyboardButton.
 func (bot *BotAPI) SavePreparedKeyboardButton(config SavePreparedKeyboardButtonConfig) (PreparedKeyboardButton, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return PreparedKeyboardButton{}, err
-	}
+	return bot.SavePreparedKeyboardButtonWithContext(context.Background(), config)
+}
 
-	var button PreparedKeyboardButton
-	err = json.Unmarshal(resp.Result, &button)
-
-	return button, err
+// SavePreparedKeyboardButtonWithContext stores a keyboard button that can be used
+// by a user within a Mini App with a context. Returns a PreparedKeyboardButton.
+func (bot *BotAPI) SavePreparedKeyboardButtonWithContext(ctx context.Context, config SavePreparedKeyboardButtonConfig) (PreparedKeyboardButton, error) {
+	return RequestTypedWithContext[PreparedKeyboardButton](ctx, bot, config)
 }
 
 // AnswerGuestQuery replies to a received guest message and returns the
 // resulting SentGuestMessage.
 func (bot *BotAPI) AnswerGuestQuery(config AnswerGuestQueryConfig) (SentGuestMessage, error) {
-	var sent SentGuestMessage
+	return bot.AnswerGuestQueryWithContext(context.Background(), config)
+}
 
-	resp, err := bot.Request(config)
-	if err != nil {
-		return sent, err
-	}
-
-	err = json.Unmarshal(resp.Result, &sent)
-	return sent, err
+// AnswerGuestQueryWithContext replies to a received guest message and returns the
+// resulting SentGuestMessage with a context.
+func (bot *BotAPI) AnswerGuestQueryWithContext(ctx context.Context, config AnswerGuestQueryConfig) (SentGuestMessage, error) {
+	return RequestTypedWithContext[SentGuestMessage](ctx, bot, config)
 }
 
 // GetManagedBotAccessSettings returns the access settings of a managed bot.
 func (bot *BotAPI) GetManagedBotAccessSettings(config GetManagedBotAccessSettingsConfig) (BotAccessSettings, error) {
-	var settings BotAccessSettings
+	return bot.GetManagedBotAccessSettingsWithContext(context.Background(), config)
+}
 
-	resp, err := bot.Request(config)
-	if err != nil {
-		return settings, err
-	}
-
-	err = json.Unmarshal(resp.Result, &settings)
-	return settings, err
+// GetManagedBotAccessSettingsWithContext returns the access settings of a managed bot with a context.
+func (bot *BotAPI) GetManagedBotAccessSettingsWithContext(ctx context.Context, config GetManagedBotAccessSettingsConfig) (BotAccessSettings, error) {
+	return RequestTypedWithContext[BotAccessSettings](ctx, bot, config)
 }
 
 // GetUserPersonalChatMessages returns the last messages from the personal
 // chat of a user.
 func (bot *BotAPI) GetUserPersonalChatMessages(config GetUserPersonalChatMessagesConfig) ([]Message, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return nil, err
-	}
+	return bot.GetUserPersonalChatMessagesWithContext(context.Background(), config)
+}
 
-	var messages []Message
-	err = json.Unmarshal(resp.Result, &messages)
-
-	return messages, err
+// GetUserPersonalChatMessagesWithContext returns the last messages from the personal
+// chat of a user with a context.
+func (bot *BotAPI) GetUserPersonalChatMessagesWithContext(ctx context.Context, config GetUserPersonalChatMessagesConfig) ([]Message, error) {
+	return RequestTypedWithContext[[]Message](ctx, bot, config)
 }
 
 // EscapeText takes an input text and escape Telegram markup symbols.
