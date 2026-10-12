@@ -364,7 +364,7 @@ func (chat *BaseChat) params() (Params, error) {
 
 // EphemeralMessageParameters holds the parameters that make an outgoing
 // message ephemeral, i.e. visible only to a single recipient and the bot. It
-// is embedded (as EphemeralSendParams) by the send configs whose methods
+// is embedded (as EphemeralMessageParameters) by the send configs whose methods
 // support ephemeral messages and is sent on the wire as the JSON-serialized
 // ephemeral_message_parameters parameter.
 //
@@ -388,9 +388,7 @@ type EphemeralMessageParameters struct {
 	ReplaceCallbackQueryMessage bool `json:"replace_callback_query_message,omitempty"`
 }
 
-// EphemeralSendParams is the embedded form of EphemeralMessageParameters kept
-// for source compatibility with Bot API 10.2 code.
-type EphemeralSendParams = EphemeralMessageParameters
+
 
 // addTo writes the ephemeral_message_parameters parameter into params. It is
 // a named method rather than params() so that it does not collide with the
@@ -444,7 +442,7 @@ func (edit BaseEdit) params() (Params, error) {
 // MessageConfig contains information about a SendMessage request.
 type MessageConfig struct {
 	BaseChat
-	EphemeralSendParams
+	EphemeralMessageParameters
 	Text               string
 	ParseMode          string
 	Entities           []MessageEntity
@@ -465,7 +463,7 @@ func (config MessageConfig) params() (Params, error) {
 	if err = params.AddAny("entities", config.Entities); err != nil {
 		return params, err
 	}
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -539,7 +537,7 @@ func (config CopyMessageConfig) method() string {
 // PhotoConfig contains information about a SendPhoto request.
 type PhotoConfig struct {
 	BaseFile
-	EphemeralSendParams
+	EphemeralMessageParameters
 	Thumbnail             RequestFileData
 	Caption               string
 	ParseMode             string
@@ -561,7 +559,7 @@ func (config PhotoConfig) params() (Params, error) {
 	if err = params.AddAny("caption_entities", config.CaptionEntities); err != nil {
 		return params, err
 	}
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -589,7 +587,7 @@ func (config PhotoConfig) files() []RequestFile {
 // AudioConfig contains information about a SendAudio request.
 type AudioConfig struct {
 	BaseFile
-	EphemeralSendParams
+	EphemeralMessageParameters
 	Thumbnail       RequestFileData
 	Caption         string
 	ParseMode       string
@@ -610,10 +608,10 @@ func (config AudioConfig) params() (Params, error) {
 	params.AddNonEmpty("title", config.Title)
 	params.AddNonEmpty("caption", config.Caption)
 	params.AddNonEmpty("parse_mode", config.ParseMode)
-	if err = params.AddInterface("caption_entities", config.CaptionEntities); err != nil {
+	if err = params.AddAny("caption_entities", config.CaptionEntities); err != nil {
 		return params, err
 	}
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -641,7 +639,7 @@ func (config AudioConfig) files() []RequestFile {
 // DocumentConfig contains information about a SendDocument request.
 type DocumentConfig struct {
 	BaseFile
-	EphemeralSendParams
+	EphemeralMessageParameters
 	Thumbnail                   RequestFileData
 	Caption                     string
 	ParseMode                   string
@@ -662,7 +660,7 @@ func (config DocumentConfig) params() (Params, error) {
 		return params, err
 	}
 
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -690,7 +688,7 @@ func (config DocumentConfig) files() []RequestFile {
 // StickerConfig contains information about a SendSticker request.
 type StickerConfig struct {
 	BaseFile
-	EphemeralSendParams
+	EphemeralMessageParameters
 	// Emoji associated with the sticker; only for just uploaded stickers.
 	Emoji string
 }
@@ -703,7 +701,7 @@ func (config StickerConfig) params() (Params, error) {
 
 	params.AddNonEmpty("emoji", config.Emoji)
 
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -722,7 +720,7 @@ func (config StickerConfig) files() []RequestFile {
 // VideoConfig contains information about a SendVideo request.
 type VideoConfig struct {
 	BaseFile
-	EphemeralSendParams
+	EphemeralMessageParameters
 	Thumbnail             RequestFileData
 	Cover                 RequestFileData
 	StartTimestamp        int
@@ -755,7 +753,7 @@ func (config VideoConfig) params() (Params, error) {
 	if err = params.AddAny("caption_entities", config.CaptionEntities); err != nil {
 		return params, err
 	}
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -794,7 +792,7 @@ func (config VideoConfig) files() []RequestFile {
 // currently supported.
 type LivePhotoConfig struct {
 	BaseFile
-	EphemeralSendParams
+	EphemeralMessageParameters
 	Photo                 RequestFileData
 	Caption               string
 	ParseMode             string
@@ -816,7 +814,7 @@ func (config LivePhotoConfig) params() (Params, error) {
 	if err = params.AddAny("caption_entities", config.CaptionEntities); err != nil {
 		return params, err
 	}
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -844,7 +842,7 @@ func (config LivePhotoConfig) files() []RequestFile {
 // AnimationConfig contains information about a SendAnimation request.
 type AnimationConfig struct {
 	BaseFile
-	EphemeralSendParams
+	EphemeralMessageParameters
 	Duration              int
 	Width                 int
 	Height                int
@@ -872,7 +870,7 @@ func (config AnimationConfig) params() (Params, error) {
 	if err = params.AddAny("caption_entities", config.CaptionEntities); err != nil {
 		return params, err
 	}
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -900,7 +898,7 @@ func (config AnimationConfig) files() []RequestFile {
 // VideoNoteConfig contains information about a SendVideoNote request.
 type VideoNoteConfig struct {
 	BaseFile
-	EphemeralSendParams
+	EphemeralMessageParameters
 	Thumbnail RequestFileData
 	Duration  int
 	Length    int
@@ -915,7 +913,7 @@ func (config VideoNoteConfig) params() (Params, error) {
 	params.AddNonZero("duration", config.Duration)
 	params.AddNonZero("length", config.Length)
 
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -943,7 +941,7 @@ func (config VideoNoteConfig) files() []RequestFile {
 // VoiceConfig contains information about a SendVoice request.
 type VoiceConfig struct {
 	BaseFile
-	EphemeralSendParams
+	EphemeralMessageParameters
 	Thumbnail       RequestFileData
 	Caption         string
 	ParseMode       string
@@ -960,10 +958,10 @@ func (config VoiceConfig) params() (Params, error) {
 	params.AddNonZero("duration", config.Duration)
 	params.AddNonEmpty("caption", config.Caption)
 	params.AddNonEmpty("parse_mode", config.ParseMode)
-	if err = params.AddInterface("caption_entities", config.CaptionEntities); err != nil {
+	if err = params.AddAny("caption_entities", config.CaptionEntities); err != nil {
 		return params, err
 	}
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -991,7 +989,7 @@ func (config VoiceConfig) files() []RequestFile {
 // LocationConfig contains information about a SendLocation request.
 type LocationConfig struct {
 	BaseChat
-	EphemeralSendParams
+	EphemeralMessageParameters
 	Latitude             float64 // required
 	Longitude            float64 // required
 	HorizontalAccuracy   float64 // optional
@@ -1013,7 +1011,7 @@ func (config LocationConfig) params() (Params, error) {
 	params.AddNonZero("heading", config.Heading)
 	params.AddNonZero("proximity_alert_radius", config.ProximityAlertRadius)
 
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -1066,7 +1064,7 @@ func (config StopMessageLiveLocationConfig) method() string {
 // VenueConfig contains information about a SendVenue request.
 type VenueConfig struct {
 	BaseChat
-	EphemeralSendParams
+	EphemeralMessageParameters
 	Latitude        float64 // required
 	Longitude       float64 // required
 	Title           string  // required
@@ -1092,7 +1090,7 @@ func (config VenueConfig) params() (Params, error) {
 	params.AddNonEmpty("google_place_id", config.GooglePlaceID)
 	params.AddNonEmpty("google_place_type", config.GooglePlaceType)
 
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -1104,7 +1102,7 @@ func (config VenueConfig) method() string {
 // ContactConfig allows you to send a contact.
 type ContactConfig struct {
 	BaseChat
-	EphemeralSendParams
+	EphemeralMessageParameters
 	PhoneNumber string
 	FirstName   string
 	LastName    string
@@ -1123,7 +1121,7 @@ func (config ContactConfig) params() (Params, error) {
 	params.AddNonEmpty("last_name", config.LastName)
 	params.AddNonEmpty("vcard", config.VCard)
 
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }
@@ -1443,7 +1441,7 @@ func (config EditMessageMediaConfig) params() (Params, error) {
 		return params, err
 	}
 
-	err = params.AddInterface("media", prepareInputMediaParam(config.Media, 0))
+	err = params.AddAny("media", prepareInputMediaParam(config.Media, 0))
 
 	return params, err
 }
@@ -1738,7 +1736,7 @@ func (config UpdateConfig) params() (Params, error) {
 	params.AddNonZero("offset", config.Offset)
 	params.AddNonZero("limit", config.Limit)
 	params.AddNonZero("timeout", config.Timeout)
-	params.AddInterface("allowed_updates", config.AllowedUpdates)
+	params.AddAny("allowed_updates", config.AllowedUpdates)
 
 	return params, nil
 }
@@ -1767,7 +1765,7 @@ func (config WebhookConfig) params() (Params, error) {
 
 	params.AddNonEmpty("ip_address", config.IPAddress)
 	params.AddNonZero("max_connections", config.MaxConnections)
-	err := params.AddInterface("allowed_updates", config.AllowedUpdates)
+	err := params.AddAny("allowed_updates", config.AllowedUpdates)
 	params.AddBool("drop_pending_updates", config.DropPendingUpdates)
 	params.AddNonEmpty("secret_token", config.SecretToken)
 
@@ -1852,7 +1850,7 @@ func (config AnswerWebAppQueryConfig) params() (Params, error) {
 	params := make(Params)
 
 	params["web_app_query_id"] = config.WebAppQueryID
-	err := params.AddInterface("result", config.Result)
+	err := params.AddAny("result", config.Result)
 
 	return params, err
 }
@@ -1962,7 +1960,7 @@ func (config RestrictChatMemberConfig) params() (Params, error) {
 	}
 	params.AddNonZero64("user_id", config.UserID)
 
-	err := params.AddInterface("permissions", config.Permissions)
+	err := params.AddAny("permissions", config.Permissions)
 	params.AddBool("use_independent_chat_permissions", config.UseIndependentChatPermissions)
 	params.AddNonZero64("until_date", config.UntilDate)
 
@@ -2080,10 +2078,6 @@ type BanChatSenderChatConfig struct {
 	ChatID          int64
 	ChannelUsername string
 	SenderChatID    int64
-	// Deprecated: banChatSenderChat no longer accepts until_date; sender chats
-	// are banned until they are explicitly unbanned. The value is ignored by
-	// Telegram.
-	UntilDate int
 }
 
 func (config BanChatSenderChatConfig) method() string {
@@ -2097,7 +2091,6 @@ func (config BanChatSenderChatConfig) params() (Params, error) {
 		return params, err
 	}
 	params.AddNonZero64("sender_chat_id", config.SenderChatID)
-	params.AddNonZero("until_date", config.UntilDate)
 
 	return params, nil
 }
@@ -2200,7 +2193,7 @@ func (config SetChatPermissionsConfig) params() (Params, error) {
 	if err := params.AddFirstValid("chat_id", config.ChatID, config.SuperGroupUsername); err != nil {
 		return params, err
 	}
-	err := params.AddInterface("permissions", config.Permissions)
+	err := params.AddAny("permissions", config.Permissions)
 	params.AddBool("use_independent_chat_permissions", config.UseIndependentChatPermissions)
 
 	return params, err
@@ -2858,7 +2851,7 @@ func (config ShippingConfig) params() (Params, error) {
 
 	params["shipping_query_id"] = config.ShippingQueryID
 	params.AddBool("ok", config.OK)
-	err := params.AddInterface("shipping_options", config.ShippingOptions)
+	err := params.AddAny("shipping_options", config.ShippingOptions)
 	params.AddNonEmpty("error_message", config.ErrorMessage)
 
 	return params, err
@@ -3652,7 +3645,7 @@ func (config GetCustomEmojiStickersConfig) method() string {
 func (config GetCustomEmojiStickersConfig) params() (Params, error) {
 	params := make(Params)
 
-	err := params.AddInterface("custom_emoji_ids", config.CustomEmojiIDs)
+	err := params.AddAny("custom_emoji_ids", config.CustomEmojiIDs)
 
 	return params, err
 }
@@ -4227,7 +4220,7 @@ func (config GetMyCommandsConfig) method() string {
 func (config GetMyCommandsConfig) params() (Params, error) {
 	params := make(Params)
 
-	err := params.AddInterface("scope", config.Scope)
+	err := params.AddAny("scope", config.Scope)
 	params.AddNonEmpty("language_code", config.LanguageCode)
 
 	return params, err
@@ -4247,10 +4240,10 @@ func (config SetMyCommandsConfig) method() string {
 func (config SetMyCommandsConfig) params() (Params, error) {
 	params := make(Params)
 
-	if err := params.AddInterface("commands", config.Commands); err != nil {
+	if err := params.AddAny("commands", config.Commands); err != nil {
 		return params, err
 	}
-	err := params.AddInterface("scope", config.Scope)
+	err := params.AddAny("scope", config.Scope)
 	params.AddNonEmpty("language_code", config.LanguageCode)
 
 	return params, err
@@ -4268,7 +4261,7 @@ func (config DeleteMyCommandsConfig) method() string {
 func (config DeleteMyCommandsConfig) params() (Params, error) {
 	params := make(Params)
 
-	err := params.AddInterface("scope", config.Scope)
+	err := params.AddAny("scope", config.Scope)
 	params.AddNonEmpty("language_code", config.LanguageCode)
 
 	return params, err
@@ -5200,7 +5193,7 @@ func (config SetChatMenuButtonConfig) params() (Params, error) {
 	if err := params.AddFirstValid("chat_id", config.ChatID, config.ChannelUsername); err != nil {
 		return params, err
 	}
-	err := params.AddInterface("menu_button", config.MenuButton)
+	err := params.AddAny("menu_button", config.MenuButton)
 
 	return params, err
 }
@@ -5234,7 +5227,7 @@ func (config SetMyDefaultAdministratorRightsConfig) method() string {
 func (config SetMyDefaultAdministratorRightsConfig) params() (Params, error) {
 	params := make(Params)
 
-	err := params.AddInterface("rights", config.Rights)
+	err := params.AddAny("rights", config.Rights)
 	params.AddBool("for_channels", config.ForChannels)
 
 	return params, err
@@ -5409,7 +5402,7 @@ func (config SavePreparedKeyboardButtonConfig) params() (Params, error) {
 	params := make(Params)
 
 	params.AddNonZero64("user_id", config.UserID)
-	err := params.AddInterface("button", config.Button)
+	err := params.AddAny("button", config.Button)
 
 	return params, err
 }
@@ -5622,7 +5615,7 @@ func prepareInputMediaForFiles(inputMedia []interface{}) []RequestFile {
 // returned, so it can be passed to BotAPI.Send.
 type SendRichMessageConfig struct {
 	BaseChat
-	EphemeralSendParams
+	EphemeralMessageParameters
 	// RichMessage is the message to be sent.
 	RichMessage *InputRichMessage
 }
@@ -5637,7 +5630,7 @@ func (config SendRichMessageConfig) params() (Params, error) {
 	if err = params.AddAny("rich_message", richMessage); err != nil {
 		return params, err
 	}
-	err = config.EphemeralSendParams.addTo(params)
+	err = config.EphemeralMessageParameters.addTo(params)
 
 	return params, err
 }

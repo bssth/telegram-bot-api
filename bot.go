@@ -638,13 +638,6 @@ func (bot *BotAPI) GetChatAdministrators(config ChatAdministratorsConfig) ([]Cha
 	return members, err
 }
 
-// GetChatMembersCount gets the number of users in a chat.
-//
-// Deprecated: use GetChatMemberCount, which matches the Bot API method name.
-func (bot *BotAPI) GetChatMembersCount(config ChatMemberCountConfig) (int, error) {
-	return bot.GetChatMemberCount(config)
-}
-
 // GetChatMemberCount gets the number of members in a chat.
 func (bot *BotAPI) GetChatMemberCount(config ChatMemberCountConfig) (int, error) {
 	resp, err := bot.Request(config)
