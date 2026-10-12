@@ -7,6 +7,8 @@
 //	go run ./internal/cmd/specdiff            # report against the latest spec
 //	go run ./internal/cmd/specdiff -strict    # exit with status 1 on gaps
 //	go run ./internal/cmd/specdiff -v         # also list extra fields/params
+//	go run ./internal/cmd/specdiff -format markdown
+//	go run ./internal/cmd/specdiff -format json
 //	go run ./internal/cmd/specdiff -spec api.json
 //
 // The specification is the api.json published by
@@ -76,6 +78,7 @@ type specEntry struct {
 type spec struct {
 	Version     string               `json:"version"`
 	ReleaseDate string               `json:"release_date"`
+	Changelog   string               `json:"changelog"`
 	Methods     map[string]specEntry `json:"methods"`
 	Types       map[string]specEntry `json:"types"`
 }
@@ -102,7 +105,15 @@ func main() {
 	dir := flag.String("dir", ".", "directory of the tgbotapi package")
 	strict := flag.Bool("strict", false, "exit with status 1 if anything is missing")
 	verbose := flag.Bool("v", false, "also report fields and parameters that are not in the spec")
+	format := flag.String("format", "text", "output format: text, markdown or json")
 	flag.Parse()
+
+	switch *format {
+	case "text", "markdown", "json":
+	default:
+		fmt.Fprintf(os.Stderr, "invalid format %q: must be text, markdown, or json\n", *format)
+		os.Exit(2)
+	}
 
 	s, err := loadSpec(*specSource)
 	if err != nil {
@@ -118,25 +129,129 @@ func main() {
 
 	missing, extra := compare(s, p)
 
-	fmt.Printf("Telegram %s (%s)\n\n", s.Version, s.ReleaseDate)
-	if len(missing) == 0 {
-		fmt.Println("Nothing is missing.")
-	} else {
-		fmt.Printf("Missing (%d):\n", len(missing))
-		for _, m := range missing {
-			fmt.Println("  -", m)
+	switch *format {
+	case "text":
+		fmt.Print(formatText(s, missing, extra, *verbose))
+	case "markdown":
+		fmt.Print(formatMarkdown(s, missing, extra, *verbose))
+	case "json":
+		data, err := formatJSON(s, missing, extra, *verbose)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "formatting json:", err)
+			os.Exit(2)
 		}
-	}
-	if *verbose && len(extra) > 0 {
-		fmt.Printf("\nNot in the spec (%d):\n", len(extra))
-		for _, e := range extra {
-			fmt.Println("  -", e)
-		}
+		fmt.Println(string(data))
 	}
 
 	if *strict && len(missing) > 0 {
 		os.Exit(1)
 	}
+}
+
+func issueTitle(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "Support new Telegram Bot API version"
+	}
+	if strings.HasPrefix(v, "Support ") {
+		return v
+	}
+	if strings.HasPrefix(v, "Telegram ") {
+		return "Support " + v
+	}
+	if strings.HasPrefix(v, "Bot API") {
+		return "Support Telegram " + v
+	}
+	return "Support Telegram Bot API " + v
+}
+
+func changelogLink(c string) string {
+	const official = "https://core.telegram.org/bots/api-changelog"
+	if c != "" && c != official {
+		return fmt.Sprintf("[Official changelog](%s) · [Release notes](%s)", official, c)
+	}
+	return fmt.Sprintf("[Official changelog](%s)", official)
+}
+
+func formatText(s *spec, missing, extra []string, verbose bool) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Telegram %s (%s)\n\n", s.Version, s.ReleaseDate)
+	if len(missing) == 0 {
+		fmt.Fprintln(&b, "Nothing is missing.")
+	} else {
+		fmt.Fprintf(&b, "Missing (%d):\n", len(missing))
+		for _, m := range missing {
+			fmt.Fprintf(&b, "  - %s\n", m)
+		}
+	}
+	if verbose && len(extra) > 0 {
+		fmt.Fprintf(&b, "\nNot in the spec (%d):\n", len(extra))
+		for _, e := range extra {
+			fmt.Fprintf(&b, "  - %s\n", e)
+		}
+	}
+	return b.String()
+}
+
+func formatMarkdown(s *spec, missing, extra []string, verbose bool) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Telegram %s (%s)\n\n", s.Version, s.ReleaseDate)
+	fmt.Fprintln(&b, changelogLink(s.Changelog))
+	fmt.Fprintln(&b)
+	if len(missing) == 0 {
+		fmt.Fprintln(&b, "Nothing is missing.")
+	} else {
+		fmt.Fprintf(&b, "### Missing (%d)\n\n", len(missing))
+		for _, m := range missing {
+			fmt.Fprintf(&b, "- %s\n", m)
+		}
+	}
+	if verbose && len(extra) > 0 {
+		fmt.Fprintf(&b, "\n### Not in the spec (%d)\n\n", len(extra))
+		for _, e := range extra {
+			fmt.Fprintf(&b, "- %s\n", e)
+		}
+	}
+	return b.String()
+}
+
+type jsonOutput struct {
+	Version     string   `json:"version"`
+	ReleaseDate string   `json:"release_date"`
+	Changelog   string   `json:"changelog"`
+	Title       string   `json:"title"`
+	Missing     []string `json:"missing"`
+	Extra       []string `json:"extra,omitempty"`
+	Markdown    string   `json:"markdown"`
+}
+
+func formatJSON(s *spec, missing, extra []string, verbose bool) ([]byte, error) {
+	if missing == nil {
+		missing = []string{}
+	}
+	var extraOut []string
+	if verbose {
+		if extra == nil {
+			extraOut = []string{}
+		} else {
+			extraOut = extra
+		}
+	}
+	changelog := s.Changelog
+	if changelog == "" {
+		changelog = "https://core.telegram.org/bots/api-changelog"
+	}
+
+	out := jsonOutput{
+		Version:     s.Version,
+		ReleaseDate: s.ReleaseDate,
+		Changelog:   changelog,
+		Title:       issueTitle(s.Version),
+		Missing:     missing,
+		Extra:       extraOut,
+		Markdown:    formatMarkdown(s, missing, extra, verbose),
+	}
+	return json.MarshalIndent(out, "", "  ")
 }
 
 func loadSpec(source string) (*spec, error) {

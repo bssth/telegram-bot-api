@@ -1,12 +1,22 @@
 name: Bot API spec
 
 # Compares the library with the latest published Telegram Bot API
-# specification, so that new Bot API releases are noticed quickly.
+# specification and opens or updates an issue when gaps are found.
 
 on:
   schedule:
     - cron: '17 6 * * 1'
   workflow_dispatch:
+    inputs:
+      spec:
+        description: 'URL or path of the Bot API api.json'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  issues: write
 
 jobs:
   specdiff:
@@ -19,5 +29,43 @@ jobs:
         with:
           go-version: '1.24'
 
-      - name: Report missing types, fields, methods and parameters
-        run: go run ./internal/cmd/specdiff -strict
+      - name: Compare with Bot API spec and update issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SPEC_URL: ${{ inputs.spec }}
+        run: |
+          SPEC_FLAGS=()
+          if [ -n "$SPEC_URL" ]; then
+            SPEC_FLAGS=(-spec "$SPEC_URL")
+          fi
+
+          go run ./internal/cmd/specdiff "${SPEC_FLAGS[@]}" -format json > report.json
+
+          MISSING_COUNT=$(jq '.missing | length' report.json)
+          if [ "$MISSING_COUNT" -eq 0 ]; then
+            echo "Nothing is missing from the Bot API specification."
+            exit 0
+          fi
+
+          echo "Found $MISSING_COUNT missing items in the Bot API specification."
+
+          TITLE=$(jq -r '.title' report.json)
+          jq -r '.markdown' report.json > report.md
+          cat report.md
+
+          if [ -n "$GITHUB_STEP_SUMMARY" ]; then
+            cat report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          LABEL="bot-api-update"
+          gh label create "$LABEL" --description "Updates for new Telegram Bot API versions" --color "1d76db" --force || true
+
+          ISSUE_NUMBER=$(gh issue list --state open --label "$LABEL" --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "$ISSUE_NUMBER" ]; then
+            echo "Updating existing issue #$ISSUE_NUMBER: $TITLE"
+            gh issue edit "$ISSUE_NUMBER" --title "$TITLE" --body-file report.md
+          else
+            echo "Creating new issue: $TITLE"
+            gh issue create --title "$TITLE" --body-file report.md --label "$LABEL"
+          fi
