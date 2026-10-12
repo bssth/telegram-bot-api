@@ -6,6 +6,9 @@ on:
       - master
       - develop
   pull_request:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -31,3 +34,24 @@ jobs:
 
       - name: Test
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    if: ${{ secrets.TELEGRAM_BOT_TOKEN != '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name == 'master')) }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Run integration tests
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_TEST_CHAT_ID: ${{ secrets.TELEGRAM_TEST_CHAT_ID }}
+          TELEGRAM_TEST_CHANNEL: ${{ secrets.TELEGRAM_TEST_CHANNEL }}
+          TELEGRAM_TEST_SUPERGROUP_ID: ${{ secrets.TELEGRAM_TEST_SUPERGROUP_ID }}
+        run: go test -v -race ./...
