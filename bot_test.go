@@ -1051,11 +1051,12 @@ func ExampleNewWebhook() {
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
-	wh, err := NewWebhookWithCert("https://www.google.com:8443/"+bot.Token, FilePath("cert.pem"))
-
+	wh, err := NewWebhookWithCert("https://www.google.com:8443/", FilePath("cert.pem"))
 	if err != nil {
 		panic(err)
 	}
+	wh.SecretToken = "super-secret-token"
+	bot.WebhookSecretToken = wh.SecretToken
 
 	_, err = bot.Request(wh)
 
@@ -1073,7 +1074,7 @@ func ExampleNewWebhook() {
 		log.Printf("failed to set webhook: %s", info.LastErrorMessage)
 	}
 
-	updates := bot.ListenForWebhook("/" + bot.Token)
+	updates := bot.ListenForWebhook("/")
 	go http.ListenAndServeTLS("0.0.0.0:8443", "cert.pem", "key.pem", nil)
 
 	for update := range updates {
@@ -1091,11 +1092,13 @@ func ExampleNewWebhookWithCert() {
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
-	wh, err := NewWebhookWithCert("https://www.google.com:8443/"+bot.Token, FilePath("cert.pem"))
+	wh, err := NewWebhookWithCert("https://www.google.com:8443/", FilePath("cert.pem"))
 
 	if err != nil {
 		panic(err)
 	}
+	wh.SecretToken = "super-secret-token"
+	bot.WebhookSecretToken = wh.SecretToken
 
 	_, err = bot.Request(wh)
 	if err != nil {
@@ -1109,7 +1112,7 @@ func ExampleNewWebhookWithCert() {
 		log.Printf("[Telegram callback failed]%s", info.LastErrorMessage)
 	}
 
-	http.HandleFunc("/"+bot.Token, func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		update, err := bot.HandleUpdate(r)
 		if err != nil {
 			log.Printf("%+v\n", err.Error())

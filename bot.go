@@ -4,6 +4,7 @@ package tgbotapi
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,9 +23,10 @@ type HTTPClient interface {
 
 // BotAPI allows you to interact with the Telegram Bot API.
 type BotAPI struct {
-	Token  string `json:"token"`
-	Debug  bool   `json:"debug"`
-	Buffer int    `json:"buffer"`
+	Token              string `json:"token"`
+	Debug              bool   `json:"debug"`
+	Buffer             int    `json:"buffer"`
+	WebhookSecretToken string `json:"webhook_secret_token,omitempty"`
 
 	Self            User       `json:"-"`
 	Client          HTTPClient `json:"-"`
@@ -522,16 +524,34 @@ func (bot *BotAPI) StopReceivingUpdates() {
 	close(bot.shutdownChannel)
 }
 
+// WebhookSecretTokenHeader is the header name containing the webhook secret token sent by Telegram.
+const WebhookSecretTokenHeader = "X-Telegram-Bot-Api-Secret-Token"
+
+// ErrBadSecretToken is returned when the webhook request secret token header does not match the configured secret.
+var ErrBadSecretToken = errors.New("bad secret token")
+
+// ErrInvalidSecretToken is an alias for ErrBadSecretToken.
+var ErrInvalidSecretToken = ErrBadSecretToken
+
 // ListenForWebhook registers a http handler for a webhook.
 func (bot *BotAPI) ListenForWebhook(pattern string) UpdatesChannel {
+	return bot.ListenForWebhookWithSecret(pattern, bot.WebhookSecretToken)
+}
+
+// ListenForWebhookWithSecret registers a http handler for a webhook with an expected secret token.
+func (bot *BotAPI) ListenForWebhookWithSecret(pattern string, secret string) UpdatesChannel {
 	ch := make(chan Update, bot.Buffer)
 
 	http.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-		update, err := bot.HandleUpdate(r)
+		update, err := bot.HandleUpdateWithSecret(r, secret)
 		if err != nil {
 			errMsg, _ := json.Marshal(map[string]string{"error": err.Error()})
-			w.WriteHeader(http.StatusBadRequest)
 			w.Header().Set("Content-Type", "application/json")
+			if errors.Is(err, ErrBadSecretToken) {
+				w.WriteHeader(http.StatusUnauthorized)
+			} else {
+				w.WriteHeader(http.StatusBadRequest)
+			}
 			_, _ = w.Write(errMsg)
 			return
 		}
@@ -544,16 +564,25 @@ func (bot *BotAPI) ListenForWebhook(pattern string) UpdatesChannel {
 
 // ListenForWebhookRespReqFormat registers a http handler for a single incoming webhook.
 func (bot *BotAPI) ListenForWebhookRespReqFormat(w http.ResponseWriter, r *http.Request) UpdatesChannel {
+	return bot.ListenForWebhookRespReqFormatWithSecret(w, r, bot.WebhookSecretToken)
+}
+
+// ListenForWebhookRespReqFormatWithSecret registers a http handler for a single incoming webhook with an expected secret token.
+func (bot *BotAPI) ListenForWebhookRespReqFormatWithSecret(w http.ResponseWriter, r *http.Request, secret string) UpdatesChannel {
 	ch := make(chan Update, bot.Buffer)
 
 	func(w http.ResponseWriter, r *http.Request) {
 		defer close(ch)
 
-		update, err := bot.HandleUpdate(r)
+		update, err := bot.HandleUpdateWithSecret(r, secret)
 		if err != nil {
 			errMsg, _ := json.Marshal(map[string]string{"error": err.Error()})
-			w.WriteHeader(http.StatusBadRequest)
 			w.Header().Set("Content-Type", "application/json")
+			if errors.Is(err, ErrBadSecretToken) {
+				w.WriteHeader(http.StatusUnauthorized)
+			} else {
+				w.WriteHeader(http.StatusBadRequest)
+			}
 			_, _ = w.Write(errMsg)
 			return
 		}
@@ -564,8 +593,24 @@ func (bot *BotAPI) ListenForWebhookRespReqFormat(w http.ResponseWriter, r *http.
 	return ch
 }
 
-// HandleUpdate parses and returns update received via webhook
+// HandleUpdate parses and returns update received via webhook.
+// If bot.WebhookSecretToken is non-empty, the X-Telegram-Bot-Api-Secret-Token
+// header must match it.
 func (bot *BotAPI) HandleUpdate(r *http.Request) (*Update, error) {
+	return bot.HandleUpdateWithSecret(r, bot.WebhookSecretToken)
+}
+
+// HandleUpdateWithSecret parses and returns update received via webhook,
+// verifying that the X-Telegram-Bot-Api-Secret-Token header matches the provided secret.
+// If secret is empty, the header is not verified.
+func (bot *BotAPI) HandleUpdateWithSecret(r *http.Request, secret string) (*Update, error) {
+	if secret != "" {
+		header := r.Header.Get(WebhookSecretTokenHeader)
+		if subtle.ConstantTimeCompare([]byte(header), []byte(secret)) != 1 {
+			return nil, ErrBadSecretToken
+		}
+	}
+
 	if r.Method != http.MethodPost {
 		err := errors.New("wrong HTTP method required POST")
 		return nil, err
