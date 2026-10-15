@@ -45,8 +45,17 @@ func getBot(t *testing.T) (*BotAPI, error) {
 		return nil, err
 	}
 
-	bot.Debug = true
+	// Debug dumps raw API responses (including user names) into the test
+	// output, which ends up in public CI logs, so it is opt-in.
+	if os.Getenv("TELEGRAM_TEST_DEBUG") != "" {
+		bot.Debug = true
+	}
+
+	// Route package logging into this test and put the previous logger back
+	// afterwards, so later tests don't log into a finished test.
+	prevLogger := log
 	SetLogger(testLogger{t})
+	t.Cleanup(func() { SetLogger(prevLogger) })
 
 	return bot, nil
 }
@@ -94,15 +103,19 @@ func getSupergroupChatID(t *testing.T) int64 {
 	return id
 }
 
-func getOptionalSupergroupChatID() int64 {
+func getOptionalSupergroupChatID(t *testing.T) int64 {
+	t.Helper()
+
 	val := os.Getenv("TELEGRAM_TEST_SUPERGROUP_ID")
 	if val == "" {
 		return 0
 	}
+
 	id, err := strconv.ParseInt(val, 10, 64)
 	if err != nil {
-		return 0
+		t.Fatalf("invalid TELEGRAM_TEST_SUPERGROUP_ID %q: %v", val, err)
 	}
+
 	return id
 }
 
@@ -111,7 +124,7 @@ var (
 	cachedFileIDs   = make(map[string]string)
 )
 
-func getOrUploadFileID(t *testing.T, bot *BotAPI, chatID int64, kind string, upload func() (string, error)) string {
+func getOrUploadFileID(t *testing.T, kind string, upload func() (string, error)) string {
 	t.Helper()
 
 	cachedFileIDsMu.Lock()
@@ -138,7 +151,7 @@ func getOrUploadFileID(t *testing.T, bot *BotAPI, chatID int64, kind string, upl
 
 func getExistingPhotoFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 	t.Helper()
-	return getOrUploadFileID(t, bot, chatID, "photo", func() (string, error) {
+	return getOrUploadFileID(t, "photo", func() (string, error) {
 		msg, err := bot.Send(NewPhoto(chatID, FilePath("tests/image.jpg")))
 		if err != nil {
 			return "", err
@@ -152,7 +165,7 @@ func getExistingPhotoFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 
 func getExistingDocumentFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 	t.Helper()
-	return getOrUploadFileID(t, bot, chatID, "document", func() (string, error) {
+	return getOrUploadFileID(t, "document", func() (string, error) {
 		msg, err := bot.Send(NewDocument(chatID, FilePath("tests/image.jpg")))
 		if err != nil {
 			return "", err
@@ -166,7 +179,7 @@ func getExistingDocumentFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 
 func getExistingAudioFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 	t.Helper()
-	return getOrUploadFileID(t, bot, chatID, "audio", func() (string, error) {
+	return getOrUploadFileID(t, "audio", func() (string, error) {
 		msg, err := bot.Send(NewAudio(chatID, FilePath("tests/audio.mp3")))
 		if err != nil {
 			return "", err
@@ -180,7 +193,7 @@ func getExistingAudioFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 
 func getExistingVoiceFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 	t.Helper()
-	return getOrUploadFileID(t, bot, chatID, "voice", func() (string, error) {
+	return getOrUploadFileID(t, "voice", func() (string, error) {
 		msg, err := bot.Send(NewVoice(chatID, FilePath("tests/voice.ogg")))
 		if err != nil {
 			return "", err
@@ -194,7 +207,7 @@ func getExistingVoiceFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 
 func getExistingVideoFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 	t.Helper()
-	return getOrUploadFileID(t, bot, chatID, "video", func() (string, error) {
+	return getOrUploadFileID(t, "video", func() (string, error) {
 		msg, err := bot.Send(NewVideo(chatID, FilePath("tests/video.mp4")))
 		if err != nil {
 			return "", err
@@ -208,7 +221,7 @@ func getExistingVideoFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 
 func getExistingVideoNoteFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 	t.Helper()
-	return getOrUploadFileID(t, bot, chatID, "videonote", func() (string, error) {
+	return getOrUploadFileID(t, "videonote", func() (string, error) {
 		msg, err := bot.Send(NewVideoNote(chatID, 240, FilePath("tests/videonote.mp4")))
 		if err != nil {
 			return "", err
@@ -222,7 +235,7 @@ func getExistingVideoNoteFileID(t *testing.T, bot *BotAPI, chatID int64) string 
 
 func getExistingStickerFileID(t *testing.T, bot *BotAPI, chatID int64) string {
 	t.Helper()
-	return getOrUploadFileID(t, bot, chatID, "sticker", func() (string, error) {
+	return getOrUploadFileID(t, "sticker", func() (string, error) {
 		msg, err := bot.Send(NewSticker(chatID, FilePath("tests/sticker.webp")))
 		if err != nil {
 			return "", err
@@ -242,7 +255,7 @@ func TestNewBotAPI_notoken(t *testing.T) {
 	}
 }
 
-func TestIntegrationHelpersWithServer(t *testing.T) {
+func TestTestHelpersWithFakeServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if strings.HasSuffix(r.URL.Path, "/getMe") {
@@ -258,13 +271,23 @@ func TestIntegrationHelpersWithServer(t *testing.T) {
 	t.Setenv("TELEGRAM_TEST_CHAT_ID", "987654321")
 	t.Setenv("TELEGRAM_TEST_CHANNEL", "@mychannel")
 	t.Setenv("TELEGRAM_TEST_SUPERGROUP_ID", "-1001234567890")
+	t.Setenv("TELEGRAM_TEST_DEBUG", "")
 
-	bot, err := getBot(t)
-	if err != nil {
-		t.Fatalf("getBot returned error: %v", err)
-	}
-	if bot.Self.UserName != "test_bot" {
-		t.Fatalf("expected bot username test_bot, got %s", bot.Self.UserName)
+	prevLogger := log
+	t.Run("getBot", func(t *testing.T) {
+		bot, err := getBot(t)
+		if err != nil {
+			t.Fatalf("getBot returned error: %v", err)
+		}
+		if bot.Self.UserName != "test_bot" {
+			t.Fatalf("expected bot username test_bot, got %s", bot.Self.UserName)
+		}
+		if bot.Debug {
+			t.Error("expected Debug to be off when TELEGRAM_TEST_DEBUG is not set")
+		}
+	})
+	if log != prevLogger {
+		t.Error("getBot did not restore the package logger after the test finished")
 	}
 
 	if chatID := getChatID(t); chatID != 987654321 {
@@ -279,7 +302,7 @@ func TestIntegrationHelpersWithServer(t *testing.T) {
 		t.Fatalf("expected supergroup ID -1001234567890, got %d", supergroupID)
 	}
 
-	if optionalSupergroup := getOptionalSupergroupChatID(); optionalSupergroup != -1001234567890 {
+	if optionalSupergroup := getOptionalSupergroupChatID(t); optionalSupergroup != -1001234567890 {
 		t.Fatalf("expected optional supergroup ID -1001234567890, got %d", optionalSupergroup)
 	}
 }
@@ -349,7 +372,7 @@ func TestSendWithMessageForward(t *testing.T) {
 func TestCopyMessage(t *testing.T) {
 	bot, _ := getBot(t)
 	chatID := getChatID(t)
-	targetChatID := getOptionalSupergroupChatID()
+	targetChatID := getOptionalSupergroupChatID(t)
 	if targetChatID == 0 {
 		targetChatID = chatID
 	}
@@ -807,15 +830,16 @@ func TestSendChatConfig(t *testing.T) {
 // TODO: identify why this isn't working
 // func TestSendEditMessage(t *testing.T) {
 // 	bot, _ := getBot(t)
+// 	chatID := getChatID(t)
 
-// 	msg, err := bot.Send(NewMessage(ChatID, "Testing editing."))
+// 	msg, err := bot.Send(NewMessage(chatID, "Testing editing."))
 // 	if err != nil {
 // 		t.Error(err)
 // 	}
 
 // 	edit := EditMessageTextConfig{
 // 		BaseEdit: BaseEdit{
-// 			ChatID:    ChatID,
+// 			ChatID:    chatID,
 // 			MessageID: msg.MessageID,
 // 		},
 // 		Text: "Updated text.",
@@ -837,14 +861,32 @@ func TestGetUserProfilePhotos(t *testing.T) {
 	}
 }
 
+// testWebhookURL is a fixed, unreachable webhook URL. It deliberately does not
+// contain the bot token: getWebhookInfo echoes the URL back, and Debug output
+// may end up in public CI logs.
+const testWebhookURL = "https://example.com/tgbotapi-test/webhook"
+
+// cleanupWebhook removes the webhook when the test finishes, even if it fails
+// halfway, so the bot isn't left with a webhook that blocks getUpdates.
+func cleanupWebhook(t *testing.T, bot *BotAPI) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		if _, err := bot.Request(DeleteWebhookConfig{DropPendingUpdates: true}); err != nil {
+			t.Errorf("failed to delete webhook: %v", err)
+		}
+	})
+}
+
 func TestSetWebhookWithCert(t *testing.T) {
 	bot, _ := getBot(t)
 
 	time.Sleep(time.Second * 2)
 
 	bot.Request(DeleteWebhookConfig{DropPendingUpdates: true})
+	cleanupWebhook(t, bot)
 
-	wh, err := NewWebhookWithCert("https://example.com/tgbotapi-test/"+bot.Token, FilePath("tests/cert.pem"))
+	wh, err := NewWebhookWithCert(testWebhookURL, FilePath("tests/cert.pem"))
 
 	if err != nil {
 		t.Error(err)
@@ -860,8 +902,6 @@ func TestSetWebhookWithCert(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-
-	bot.Request(DeleteWebhookConfig{DropPendingUpdates: true})
 }
 
 func TestSetWebhookWithoutCert(t *testing.T) {
@@ -870,8 +910,9 @@ func TestSetWebhookWithoutCert(t *testing.T) {
 	time.Sleep(time.Second * 2)
 
 	bot.Request(DeleteWebhookConfig{DropPendingUpdates: true})
+	cleanupWebhook(t, bot)
 
-	wh, err := NewWebhook("https://example.com/tgbotapi-test/" + bot.Token)
+	wh, err := NewWebhook(testWebhookURL)
 
 	if err != nil {
 		t.Error(err)
@@ -894,8 +935,6 @@ func TestSetWebhookWithoutCert(t *testing.T) {
 	if info.LastErrorDate != 0 {
 		t.Errorf("failed to set webhook: %s", info.LastErrorMessage)
 	}
-
-	bot.Request(DeleteWebhookConfig{DropPendingUpdates: true})
 }
 
 func TestSendWithMediaGroupPhotoVideo(t *testing.T) {
@@ -1320,8 +1359,9 @@ func TestCommands(t *testing.T) {
 //
 // func TestEditMessageMedia(t *testing.T) {
 // 	bot, _ := getBot(t)
+// 	chatID := getChatID(t)
 
-// 	msg := NewPhoto(ChatID, "tests/image.jpg")
+// 	msg := NewPhoto(chatID, FilePath("tests/image.jpg"))
 // 	msg.Caption = "Test"
 // 	m, err := bot.Send(msg)
 
@@ -1331,7 +1371,7 @@ func TestCommands(t *testing.T) {
 
 // 	edit := EditMessageMediaConfig{
 // 		BaseEdit: BaseEdit{
-// 			ChatID:    ChatID,
+// 			ChatID:    chatID,
 // 			MessageID: m.MessageID,
 // 		},
 // 		Media: NewInputMediaVideo(FilePath("tests/video.mp4")),
