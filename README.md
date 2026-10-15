@@ -118,6 +118,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	tgbotapi "github.com/bssth/telegram-bot-api/v6"
 )
@@ -132,7 +133,12 @@ func main() {
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
-	wh, _ := tgbotapi.NewWebhookWithCert("https://www.example.com:8443/"+bot.Token, tgbotapi.FilePath("cert.pem"))
+	wh, _ := tgbotapi.NewWebhookWithCert("https://www.example.com:8443/", tgbotapi.FilePath("cert.pem"))
+	// Telegram echoes this secret in the X-Telegram-Bot-Api-Secret-Token header
+	// of every webhook request; requests without it are rejected with 401.
+	// Use a random string of 1-256 characters from A-Z, a-z, 0-9, _ and -.
+	wh.SecretToken = os.Getenv("TELEGRAM_WEBHOOK_SECRET")
+	bot.WebhookSecretToken = wh.SecretToken
 
 	_, err = bot.Request(wh)
 	if err != nil {
@@ -148,7 +154,7 @@ func main() {
 		log.Printf("Telegram callback failed: %s", info.LastErrorMessage)
 	}
 
-	updates := bot.ListenForWebhook("/" + bot.Token)
+	updates := bot.ListenForWebhook("/")
 	go http.ListenAndServeTLS("0.0.0.0:8443", "cert.pem", "key.pem", nil)
 
 	for update := range updates {
@@ -303,3 +309,30 @@ doing while the code was already open:
   on `InvoiceConfig` / `InvoiceLinkConfig`) are now `json.RawMessage`
   instead of `string`, so you can hand them an already-marshaled payload
   without double-encoding.
+
+## Integration tests
+
+`go test ./...` runs the offline unit tests; the tests in `bot_test.go` that
+talk to a real bot are skipped unless the variables below are set (each test
+skips when a variable it needs is missing):
+
+| Variable | Purpose |
+| --- | --- |
+| `TELEGRAM_BOT_TOKEN` | Token of a dedicated test bot. Without it every integration test is skipped. |
+| `TELEGRAM_TEST_CHAT_ID` | ID of a private chat with a user who has started the bot. `TestGetUserProfilePhotos` also uses it as a user ID. |
+| `TELEGRAM_TEST_CHANNEL` | Channel `@username`; the bot must be an admin with permission to post. |
+| `TELEGRAM_TEST_SUPERGROUP_ID` | Supergroup ID (`-100…`); the bot must be an admin allowed to pin messages. |
+| `TELEGRAM_API_ENDPOINT` | Optional. Bot API endpoint format string (default `https://api.telegram.org/bot%s/%s`), e.g. for a local Bot API server. |
+| `TELEGRAM_TEST_<KIND>_FILE_ID` | Optional. Existing file ID for `PHOTO`, `DOCUMENT`, `AUDIO`, `VOICE`, `VIDEO`, `VIDEONOTE` or `STICKER`; otherwise the file is uploaded once per run. |
+| `TELEGRAM_TEST_DEBUG` | Optional. Any non-empty value enables `bot.Debug`, which logs full API requests and responses. |
+
+```sh
+TELEGRAM_BOT_TOKEN=... TELEGRAM_TEST_CHAT_ID=... go test -v -count=1 ./...
+```
+
+The tests send real messages, set and delete a webhook, and change the bot's
+commands, so use a bot that does nothing else. In CI, the `Integration Tests`
+job of the [Test](./.github/workflows/test.yml) workflow reads the first four
+variables from repository secrets of the same names. It runs on pushes to
+`master`, nightly and on manual dispatch (never on pull requests), and is
+skipped with a notice when `TELEGRAM_BOT_TOKEN` is not configured.
