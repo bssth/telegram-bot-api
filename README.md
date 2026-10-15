@@ -118,6 +118,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	tgbotapi "github.com/bssth/telegram-bot-api/v6"
 )
@@ -133,7 +134,10 @@ func main() {
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
 	wh, _ := tgbotapi.NewWebhookWithCert("https://www.example.com:8443/", tgbotapi.FilePath("cert.pem"))
-	wh.SecretToken = "12345678"
+	// Telegram echoes this secret in the X-Telegram-Bot-Api-Secret-Token header
+	// of every webhook request; requests without it are rejected with 401.
+	// Use a random string of 1-256 characters from A-Z, a-z, 0-9, _ and -.
+	wh.SecretToken = os.Getenv("TELEGRAM_WEBHOOK_SECRET")
 	bot.WebhookSecretToken = wh.SecretToken
 
 	_, err = bot.Request(wh)

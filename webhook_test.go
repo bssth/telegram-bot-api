@@ -3,11 +3,38 @@ package tgbotapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
+
+// webhookPatternSeq makes every pattern registered on http.DefaultServeMux
+// unique, so the tests can run repeatedly (go test -count=N) without a
+// "pattern conflicts" panic.
+var webhookPatternSeq atomic.Uint64
+
+func uniqueWebhookPattern(name string) string {
+	return fmt.Sprintf("/%s-%d", name, webhookPatternSeq.Add(1))
+}
+
+// checkWebhookResponse asserts the status code and Content-Type as a client
+// receives them. It reads w.Result() rather than w.Code and w.Header(): the
+// latter is the live header map, so it would not catch a header set after
+// WriteHeader.
+func checkWebhookResponse(t *testing.T, w *httptest.ResponseRecorder, wantStatus int, wantContentType string) {
+	t.Helper()
+
+	res := w.Result()
+	if res.StatusCode != wantStatus {
+		t.Fatalf("expected status %d, got %d", wantStatus, res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); ct != wantContentType {
+		t.Fatalf("expected Content-Type %q, got %q", wantContentType, ct)
+	}
+}
 
 func TestHandleUpdate_WithoutSecret(t *testing.T) {
 	bot := &BotAPI{}
@@ -48,7 +75,7 @@ func TestHandleUpdate_WithoutSecret(t *testing.T) {
 	}
 }
 
-func TestHandleUpdate_WithSecret(t *testing.T) {
+func TestHandleUpdate_SecretRequired(t *testing.T) {
 	secret := "test-secret-token-12345"
 	bot := &BotAPI{
 		WebhookSecretToken: secret,
@@ -85,46 +112,15 @@ func TestHandleUpdate_WithSecret(t *testing.T) {
 	if !errors.Is(err, ErrBadSecretToken) {
 		t.Fatalf("expected ErrBadSecretToken, got: %v", err)
 	}
-}
 
-func TestHandleUpdateWithSecret(t *testing.T) {
-	bot := &BotAPI{}
-	secret := "custom-secret-999"
-
-	// Correct secret: accepted.
-	reqValid := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(`{"update_id": 300}`))
-	reqValid.Header.Set(WebhookSecretTokenHeader, secret)
-	update, err := bot.HandleUpdateWithSecret(reqValid, secret)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	// The secret is checked before the HTTP method and the body.
+	reqGet := httptest.NewRequest(http.MethodGet, "/webhook", nil)
+	if _, err = bot.HandleUpdate(reqGet); !errors.Is(err, ErrBadSecretToken) {
+		t.Fatalf("expected ErrBadSecretToken for GET without secret, got: %v", err)
 	}
-	if update == nil || update.UpdateID != 300 {
-		t.Fatalf("unexpected update: %+v", update)
-	}
-
-	// Wrong secret: rejected.
-	reqWrong := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(`{"update_id": 301}`))
-	reqWrong.Header.Set(WebhookSecretTokenHeader, "wrong")
-	_, err = bot.HandleUpdateWithSecret(reqWrong, secret)
-	if !errors.Is(err, ErrBadSecretToken) {
-		t.Fatalf("expected ErrBadSecretToken, got: %v", err)
-	}
-
-	// Missing secret: rejected.
-	reqMissing := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(`{"update_id": 302}`))
-	_, err = bot.HandleUpdateWithSecret(reqMissing, secret)
-	if !errors.Is(err, ErrBadSecretToken) {
-		t.Fatalf("expected ErrBadSecretToken, got: %v", err)
-	}
-
-	// Empty secret: accepted without header check.
-	reqEmptySecret := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(`{"update_id": 303}`))
-	update, err = bot.HandleUpdateWithSecret(reqEmptySecret, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if update == nil || update.UpdateID != 303 {
-		t.Fatalf("unexpected update: %+v", update)
+	reqBadJSON := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(`not json`))
+	if _, err = bot.HandleUpdate(reqBadJSON); !errors.Is(err, ErrBadSecretToken) {
+		t.Fatalf("expected ErrBadSecretToken for invalid JSON without secret, got: %v", err)
 	}
 }
 
@@ -153,8 +149,8 @@ func TestListenForWebhookRespReqFormat(t *testing.T) {
 			t.Fatal("expected update in channel")
 		}
 
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected status 200, got %d", w.Code)
+		if code := w.Result().StatusCode; code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", code)
 		}
 	})
 
@@ -168,19 +164,14 @@ func TestListenForWebhookRespReqFormat(t *testing.T) {
 			t.Fatalf("expected no update, received: %+v", u)
 		}
 
-		if w.Code != http.StatusUnauthorized {
-			t.Fatalf("expected status 401 Unauthorized, got %d", w.Code)
-		}
-		if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-			t.Fatalf("expected Content-Type application/json, got %q", ct)
-		}
+		checkWebhookResponse(t, w, http.StatusUnauthorized, "application/json")
 
 		var resp map[string]string
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("failed to decode response json: %v", err)
 		}
-		if resp["error"] != "bad secret token" {
-			t.Fatalf("expected error message %q, got %q", "bad secret token", resp["error"])
+		if resp["error"] != ErrBadSecretToken.Error() {
+			t.Fatalf("expected error message %q, got %q", ErrBadSecretToken.Error(), resp["error"])
 		}
 	})
 
@@ -193,12 +184,7 @@ func TestListenForWebhookRespReqFormat(t *testing.T) {
 			t.Fatalf("expected no update, received: %+v", u)
 		}
 
-		if w.Code != http.StatusUnauthorized {
-			t.Fatalf("expected status 401 Unauthorized, got %d", w.Code)
-		}
-		if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-			t.Fatalf("expected Content-Type application/json, got %q", ct)
-		}
+		checkWebhookResponse(t, w, http.StatusUnauthorized, "application/json")
 	})
 
 	t.Run("bad json payload returns 400 and sets Content-Type header", func(t *testing.T) {
@@ -211,12 +197,7 @@ func TestListenForWebhookRespReqFormat(t *testing.T) {
 			t.Fatalf("expected no update, received: %+v", u)
 		}
 
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("expected status 400 Bad Request, got %d", w.Code)
-		}
-		if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-			t.Fatalf("expected Content-Type application/json, got %q", ct)
-		}
+		checkWebhookResponse(t, w, http.StatusBadRequest, "application/json")
 	})
 
 	t.Run("unconfigured secret accepts request without header", func(t *testing.T) {
@@ -237,8 +218,8 @@ func TestListenForWebhookRespReqFormat(t *testing.T) {
 			t.Fatal("expected update in channel")
 		}
 
-		if w.Code != http.StatusOK {
-			t.Fatalf("expected status 200, got %d", w.Code)
+		if code := w.Result().StatusCode; code != http.StatusOK {
+			t.Fatalf("expected status 200, got %d", code)
 		}
 	})
 }
@@ -250,7 +231,7 @@ func TestListenForWebhook(t *testing.T) {
 		WebhookSecretToken: secret,
 	}
 
-	pattern := "/test-webhook-listen"
+	pattern := uniqueWebhookPattern("test-webhook-listen")
 	ch := bot.ListenForWebhook(pattern)
 
 	// Valid request with secret
@@ -274,22 +255,28 @@ func TestListenForWebhook(t *testing.T) {
 	wWrong := httptest.NewRecorder()
 	http.DefaultServeMux.ServeHTTP(wWrong, reqWrong)
 
-	if wWrong.Code != http.StatusUnauthorized {
-		t.Fatalf("expected status 401, got %d", wWrong.Code)
-	}
-	if ct := wWrong.Header().Get("Content-Type"); ct != "application/json" {
-		t.Fatalf("expected Content-Type application/json, got %q", ct)
+	checkWebhookResponse(t, wWrong, http.StatusUnauthorized, "application/json")
+
+	// Invalid request without secret
+	reqMissing := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`{"update_id": 503}`))
+	wMissing := httptest.NewRecorder()
+	http.DefaultServeMux.ServeHTTP(wMissing, reqMissing)
+
+	checkWebhookResponse(t, wMissing, http.StatusUnauthorized, "application/json")
+
+	select {
+	case u := <-ch:
+		t.Fatalf("expected no update for rejected requests, received: %+v", u)
+	default:
 	}
 }
 
-func TestListenForWebhookWithSecret(t *testing.T) {
+func TestListenForWebhook_WithoutSecret(t *testing.T) {
 	bot := &BotAPI{Buffer: 10}
-	pattern := "/test-webhook-with-secret"
-	secret := "explicit-secret-value"
-	ch := bot.ListenForWebhookWithSecret(pattern, secret)
+	pattern := uniqueWebhookPattern("test-webhook-no-secret")
+	ch := bot.ListenForWebhook(pattern)
 
 	reqValid := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`{"update_id": 601}`))
-	reqValid.Header.Set(WebhookSecretTokenHeader, secret)
 	wValid := httptest.NewRecorder()
 	http.DefaultServeMux.ServeHTTP(wValid, reqValid)
 
@@ -302,14 +289,46 @@ func TestListenForWebhookWithSecret(t *testing.T) {
 		t.Fatal("expected update in channel")
 	}
 
-	reqMissing := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`{"update_id": 602}`))
+	reqBadJSON := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`bad json`))
+	wBadJSON := httptest.NewRecorder()
+	http.DefaultServeMux.ServeHTTP(wBadJSON, reqBadJSON)
+
+	checkWebhookResponse(t, wBadJSON, http.StatusBadRequest, "application/json")
+}
+
+func TestListenForWebhook_SecretSetAfterRegistration(t *testing.T) {
+	bot := &BotAPI{Buffer: 10}
+	pattern := uniqueWebhookPattern("test-webhook-secret-after")
+	ch := bot.ListenForWebhook(pattern)
+
+	// The secret is configured only after the handler has been registered;
+	// the handler must still enforce it.
+	secret := "late-secret-value"
+	bot.WebhookSecretToken = secret
+
+	reqMissing := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`{"update_id": 701}`))
 	wMissing := httptest.NewRecorder()
 	http.DefaultServeMux.ServeHTTP(wMissing, reqMissing)
 
-	if wMissing.Code != http.StatusUnauthorized {
-		t.Fatalf("expected status 401, got %d", wMissing.Code)
+	checkWebhookResponse(t, wMissing, http.StatusUnauthorized, "application/json")
+
+	select {
+	case u := <-ch:
+		t.Fatalf("expected no update without secret header, received: %+v", u)
+	default:
 	}
-	if ct := wMissing.Header().Get("Content-Type"); ct != "application/json" {
-		t.Fatalf("expected Content-Type application/json, got %q", ct)
+
+	reqValid := httptest.NewRequest(http.MethodPost, pattern, strings.NewReader(`{"update_id": 702}`))
+	reqValid.Header.Set(WebhookSecretTokenHeader, secret)
+	wValid := httptest.NewRecorder()
+	http.DefaultServeMux.ServeHTTP(wValid, reqValid)
+
+	select {
+	case u := <-ch:
+		if u.UpdateID != 702 {
+			t.Fatalf("expected update_id 702, got %d", u.UpdateID)
+		}
+	default:
+		t.Fatal("expected update in channel")
 	}
 }

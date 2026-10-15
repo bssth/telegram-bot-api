@@ -1,6 +1,7 @@
 package tgbotapi
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"testing"
@@ -782,6 +783,11 @@ func ExampleNewWebhookWithCert() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		update, err := bot.HandleUpdate(r)
+		if errors.Is(err, ErrBadSecretToken) {
+			// The request did not carry the secret set via setWebhook.
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
 		if err != nil {
 			log.Printf("%+v\n", err.Error())
 		} else {

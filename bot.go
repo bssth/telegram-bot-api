@@ -23,9 +23,16 @@ type HTTPClient interface {
 
 // BotAPI allows you to interact with the Telegram Bot API.
 type BotAPI struct {
-	Token              string `json:"token"`
-	Debug              bool   `json:"debug"`
-	Buffer             int    `json:"buffer"`
+	Token  string `json:"token"`
+	Debug  bool   `json:"debug"`
+	Buffer int    `json:"buffer"`
+
+	// WebhookSecretToken is the secret expected in the
+	// X-Telegram-Bot-Api-Secret-Token header of incoming webhook requests.
+	// It must match the WebhookConfig.SecretToken sent to Telegram with
+	// setWebhook. When it is set, HandleUpdate, ListenForWebhook and
+	// ListenForWebhookRespReqFormat reject requests whose header is missing
+	// or different. An empty value disables verification.
 	WebhookSecretToken string `json:"webhook_secret_token,omitempty"`
 
 	Self            User       `json:"-"`
@@ -527,32 +534,23 @@ func (bot *BotAPI) StopReceivingUpdates() {
 // WebhookSecretTokenHeader is the header name containing the webhook secret token sent by Telegram.
 const WebhookSecretTokenHeader = "X-Telegram-Bot-Api-Secret-Token"
 
-// ErrBadSecretToken is returned when the webhook request secret token header does not match the configured secret.
+// ErrBadSecretToken is returned by HandleUpdate when bot.WebhookSecretToken
+// is set and the request's X-Telegram-Bot-Api-Secret-Token header is missing
+// or does not match it.
 var ErrBadSecretToken = errors.New("bad secret token")
 
-// ErrInvalidSecretToken is an alias for ErrBadSecretToken.
-var ErrInvalidSecretToken = ErrBadSecretToken
-
 // ListenForWebhook registers a http handler for a webhook.
+//
+// If bot.WebhookSecretToken is set, requests without a matching
+// X-Telegram-Bot-Api-Secret-Token header are rejected with
+// 401 Unauthorized. The field is read on every request (see HandleUpdate).
 func (bot *BotAPI) ListenForWebhook(pattern string) UpdatesChannel {
-	return bot.ListenForWebhookWithSecret(pattern, bot.WebhookSecretToken)
-}
-
-// ListenForWebhookWithSecret registers a http handler for a webhook with an expected secret token.
-func (bot *BotAPI) ListenForWebhookWithSecret(pattern string, secret string) UpdatesChannel {
 	ch := make(chan Update, bot.Buffer)
 
 	http.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-		update, err := bot.HandleUpdateWithSecret(r, secret)
+		update, err := bot.HandleUpdate(r)
 		if err != nil {
-			errMsg, _ := json.Marshal(map[string]string{"error": err.Error()})
-			w.Header().Set("Content-Type", "application/json")
-			if errors.Is(err, ErrBadSecretToken) {
-				w.WriteHeader(http.StatusUnauthorized)
-			} else {
-				w.WriteHeader(http.StatusBadRequest)
-			}
-			_, _ = w.Write(errMsg)
+			writeWebhookError(w, err)
 			return
 		}
 
@@ -563,27 +561,19 @@ func (bot *BotAPI) ListenForWebhookWithSecret(pattern string, secret string) Upd
 }
 
 // ListenForWebhookRespReqFormat registers a http handler for a single incoming webhook.
+//
+// If bot.WebhookSecretToken is set, a request without a matching
+// X-Telegram-Bot-Api-Secret-Token header is rejected with
+// 401 Unauthorized and the returned channel is closed without an update.
 func (bot *BotAPI) ListenForWebhookRespReqFormat(w http.ResponseWriter, r *http.Request) UpdatesChannel {
-	return bot.ListenForWebhookRespReqFormatWithSecret(w, r, bot.WebhookSecretToken)
-}
-
-// ListenForWebhookRespReqFormatWithSecret registers a http handler for a single incoming webhook with an expected secret token.
-func (bot *BotAPI) ListenForWebhookRespReqFormatWithSecret(w http.ResponseWriter, r *http.Request, secret string) UpdatesChannel {
 	ch := make(chan Update, bot.Buffer)
 
 	func(w http.ResponseWriter, r *http.Request) {
 		defer close(ch)
 
-		update, err := bot.HandleUpdateWithSecret(r, secret)
+		update, err := bot.HandleUpdate(r)
 		if err != nil {
-			errMsg, _ := json.Marshal(map[string]string{"error": err.Error()})
-			w.Header().Set("Content-Type", "application/json")
-			if errors.Is(err, ErrBadSecretToken) {
-				w.WriteHeader(http.StatusUnauthorized)
-			} else {
-				w.WriteHeader(http.StatusBadRequest)
-			}
-			_, _ = w.Write(errMsg)
+			writeWebhookError(w, err)
 			return
 		}
 
@@ -593,20 +583,31 @@ func (bot *BotAPI) ListenForWebhookRespReqFormatWithSecret(w http.ResponseWriter
 	return ch
 }
 
-// HandleUpdate parses and returns update received via webhook.
-// If bot.WebhookSecretToken is non-empty, the X-Telegram-Bot-Api-Secret-Token
-// header must match it.
-func (bot *BotAPI) HandleUpdate(r *http.Request) (*Update, error) {
-	return bot.HandleUpdateWithSecret(r, bot.WebhookSecretToken)
+// writeWebhookError answers a webhook request rejected by HandleUpdate with a
+// JSON error body: 401 Unauthorized for ErrBadSecretToken, 400 Bad Request
+// otherwise.
+func writeWebhookError(w http.ResponseWriter, err error) {
+	errMsg, _ := json.Marshal(map[string]string{"error": err.Error()})
+	w.Header().Set("Content-Type", "application/json")
+	if errors.Is(err, ErrBadSecretToken) {
+		w.WriteHeader(http.StatusUnauthorized)
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+	_, _ = w.Write(errMsg)
 }
 
-// HandleUpdateWithSecret parses and returns update received via webhook,
-// verifying that the X-Telegram-Bot-Api-Secret-Token header matches the provided secret.
-// If secret is empty, the header is not verified.
-func (bot *BotAPI) HandleUpdateWithSecret(r *http.Request, secret string) (*Update, error) {
-	if secret != "" {
+// HandleUpdate parses and returns update received via webhook.
+//
+// If bot.WebhookSecretToken is set, the request's
+// X-Telegram-Bot-Api-Secret-Token header must match it, otherwise
+// ErrBadSecretToken is returned before the body is read. Custom handlers
+// should answer that error with 401 Unauthorized, e.g. by checking
+// errors.Is(err, tgbotapi.ErrBadSecretToken).
+func (bot *BotAPI) HandleUpdate(r *http.Request) (*Update, error) {
+	if bot.WebhookSecretToken != "" {
 		header := r.Header.Get(WebhookSecretTokenHeader)
-		if subtle.ConstantTimeCompare([]byte(header), []byte(secret)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(header), []byte(bot.WebhookSecretToken)) != 1 {
 			return nil, ErrBadSecretToken
 		}
 	}
