@@ -46,9 +46,15 @@ func main() {
 		// Extract the command from the Message.
 		switch update.Message.Command() {
 		case "help":
-			msg.Text = "I understand /sayhi, /status, and /docs.\nVisit https://bssth.github.io/telegram-bot-api/ for documentation."
+			msg.Text = "I understand /sayhi, /status, and /docs."
+		case "docs":
+			msg.Text = "Documentation: https://bssth.github.io/telegram-bot-api/"
+			// Show a large preview of the documentation link above the text.
+			// PreferLargeMedia is ignored unless URL is set explicitly.
 			msg.LinkPreviewOptions = &tgbotapi.LinkPreviewOptions{
-				IsDisabled: false,
+				URL:              "https://bssth.github.io/telegram-bot-api/",
+				PreferLargeMedia: true,
+				ShowAboveText:    true,
 			}
 		case "sayhi":
 			msg.Text = "Hi :)"

@@ -1,6 +1,6 @@
 # Poll Media
 
-Telegram Bot API 10.0+ allows attaching media to poll questions, poll options, and quiz explanations.
+Telegram Bot API 10.0+ allows attaching media to polls: to the poll description, to individual poll options, and to quiz explanations.
 
 ## Attaching Media to Poll Options
 
@@ -36,19 +36,21 @@ func main() {
 }
 ```
 
-## Attaching Media to the Question and Explanation
+## Attaching Media to the Description and Explanation
 
-You can also attach media to the poll itself or the quiz explanation:
+You can also attach media to the poll description (`Media`) or to the quiz explanation (`ExplanationMedia`):
 
 ```go
 poll := tgbotapi.NewPoll(12345, "Identify this building:", "Eiffel Tower", "Empire State")
 poll.Type = "quiz"
 poll.CorrectOptionIDs = []int{0}
 
-// Attach a photo to the question.
+// Add a description to the poll and attach a photo to it.
+poll.Description = "A famous landmark."
 poll.Media = tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath("tests/image.jpg"))
 
-// Attach media to the explanation shown after an answer is chosen.
+// Attach media to the explanation, which is shown when the user chooses an
+// incorrect answer or taps the lamp icon.
 poll.Explanation = "This is the Eiffel Tower in Paris."
 poll.ExplanationMedia = tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath("tests/image.jpg"))
 

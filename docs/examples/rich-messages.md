@@ -1,6 +1,6 @@
 # Rich Messages
 
-Telegram Bot API 10.1+ introduces rich messages (`sendRichMessage`), allowing bots to send structured content formatted with Markdown, HTML, or structured layout blocks, complete with embedded media and interactive buttons.
+Rich messages (`sendRichMessage`) let bots send structured content formatted with Markdown, HTML, or layout blocks. Rich messages were introduced in Telegram Bot API 10.1; Bot API 10.2 added block-structured layouts (`InputRichBlock`) and explicit embedded media (`InputRichMessageMedia`), and Bot API 10.3 added interactive buttons (`RichMessageButton`).
 
 ## Creating a Rich Message
 
@@ -66,6 +66,7 @@ func main() {
 		Blocks: []tgbotapi.InputRichBlock{
 			{
 				Type: tgbotapi.RichBlockTypeHeading,
+				Size: 1, // heading size, 1-6; 1 is the largest
 				Text: &tgbotapi.RichText{IsPlain: true, PlainText: "Release Notes"},
 			},
 			{
