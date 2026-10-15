@@ -4,6 +4,7 @@ package tgbotapi
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -53,6 +55,7 @@ type BotAPI struct {
 	Self            User       `json:"-"`
 	Client          HTTPClient `json:"-"`
 	shutdownChannel chan interface{}
+	stopMu          sync.Mutex
 
 	sleepFunc func(time.Duration)
 
@@ -168,35 +171,50 @@ func IsTooManyRequests(err error) (retryAfter time.Duration, ok bool) {
 	return 0, false
 }
 
-func (bot *BotAPI) sleepDuration(d time.Duration) {
+// sleepDuration waits for d, or until ctx is done, whichever comes first. It
+// returns ctx.Err() if ctx is done. Tests replace the wait itself through
+// sleepFunc.
+func (bot *BotAPI) sleepDuration(ctx context.Context, d time.Duration) error {
 	if bot.sleepFunc != nil {
 		bot.sleepFunc(d)
-		return
+		return ctx.Err()
 	}
-	time.Sleep(d)
+
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // sleepRetryAfter reports whether a request to endpoint that failed with err
 // on the given zero-based attempt should be retried. If so, it waits for the
 // retry_after duration requested by Telegram before returning true. A 429
 // without a positive retry_after, or with a retry_after above MaxRetryAfter
-// (when MaxRetryAfter > 0), is not retried.
-func (bot *BotAPI) sleepRetryAfter(endpoint string, attempt int, err error) bool {
+// (when MaxRetryAfter > 0), is not retried. If ctx is done while waiting,
+// sleepRetryAfter returns false and ctx.Err().
+func (bot *BotAPI) sleepRetryAfter(ctx context.Context, endpoint string, attempt int, err error) (bool, error) {
 	if attempt >= bot.MaxRetries {
-		return false
+		return false, nil
 	}
 	retryAfter, ok := IsTooManyRequests(err)
 	if !ok || retryAfter <= 0 {
-		return false
+		return false, nil
 	}
 	if bot.MaxRetryAfter > 0 && retryAfter > bot.MaxRetryAfter {
-		return false
+		return false, nil
 	}
 	if bot.Debug {
 		log.Printf("Endpoint: %s, 429 Too Many Requests, retrying in %v (attempt %d/%d)\n", endpoint, retryAfter, attempt+1, bot.MaxRetries)
 	}
-	bot.sleepDuration(retryAfter)
-	return true
+	if err := bot.sleepDuration(ctx, retryAfter); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // MakeRequest makes a request to a specific endpoint with our token.
@@ -205,16 +223,34 @@ func (bot *BotAPI) sleepRetryAfter(endpoint string, attempt int, err error) bool
 // retry_after period. A 429 without a positive retry_after, or whose
 // retry_after exceeds BotAPI.MaxRetryAfter (when set), is returned immediately.
 func (bot *BotAPI) MakeRequest(endpoint string, params Params) (*APIResponse, error) {
+	return bot.MakeRequestWithContext(context.Background(), endpoint, params)
+}
+
+// MakeRequestWithContext makes a request to a specific endpoint with our token
+// and a context. Retries on 429 Too Many Requests follow the same rules as
+// MakeRequest; waiting before a retry stops as soon as ctx is done, in which
+// case ctx.Err() is returned.
+func (bot *BotAPI) MakeRequestWithContext(ctx context.Context, endpoint string, params Params) (*APIResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	for attempt := 0; ; attempt++ {
-		resp, err := bot.makeRequestOnce(endpoint, params)
-		if err != nil && bot.sleepRetryAfter(endpoint, attempt, err) {
-			continue
+		resp, err := bot.makeRequestOnce(ctx, endpoint, params)
+		if err == nil {
+			return resp, nil
 		}
-		return resp, err
+		retry, waitErr := bot.sleepRetryAfter(ctx, endpoint, attempt, err)
+		if waitErr != nil {
+			return resp, waitErr
+		}
+		if !retry {
+			return resp, err
+		}
 	}
 }
 
-func (bot *BotAPI) makeRequestOnce(endpoint string, params Params) (*APIResponse, error) {
+func (bot *BotAPI) makeRequestOnce(ctx context.Context, endpoint string, params Params) (*APIResponse, error) {
 	if bot.Debug {
 		log.Printf("Endpoint: %s, params: %v\n", endpoint, params)
 	}
@@ -223,7 +259,7 @@ func (bot *BotAPI) makeRequestOnce(endpoint string, params Params) (*APIResponse
 
 	values := buildParams(params)
 
-	req, err := http.NewRequest(http.MethodPost, method, strings.NewReader(values.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, method, strings.NewReader(values.Encode()))
 	if err != nil {
 		return &APIResponse{}, err
 	}
@@ -306,6 +342,34 @@ func canReplayUploadFiles(files []RequestFile) bool {
 	return true
 }
 
+// writeFormFile copies a single file that needs uploading into the multipart
+// writer. The reader returned by UploadData is closed before writeFormFile
+// returns, even when the copy fails part-way (for example because the request
+// was cancelled), so FilePath uploads don't leak their file handle. When the
+// copy succeeds, an error from Close is returned.
+func writeFormFile(m *multipart.Writer, file RequestFile) (err error) {
+	name, reader, err := file.Data.UploadData()
+	if err != nil {
+		return err
+	}
+
+	if closer, ok := reader.(io.Closer); ok {
+		defer func() {
+			if closeErr := closer.Close(); err == nil {
+				err = closeErr
+			}
+		}()
+	}
+
+	part, err := m.CreateFormFile(file.Name, name)
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(part, reader)
+	return err
+}
+
 // UploadFiles makes a request to the API with files.
 // When BotAPI.MaxRetries > 0, requests encountering HTTP 429 Too Many Requests
 // errors are automatically retried up to MaxRetries times after waiting the
@@ -313,19 +377,52 @@ func canReplayUploadFiles(files []RequestFile) bool {
 // FileBytes or a FilePath. Uploads containing a FileReader or any other
 // RequestFileData implementation may not be replayable and are never retried.
 func (bot *BotAPI) UploadFiles(endpoint string, params Params, files []RequestFile) (*APIResponse, error) {
+	return bot.UploadFilesWithContext(context.Background(), endpoint, params, files)
+}
+
+// UploadFilesWithContext makes a request to the API with files and a context.
+// Retries on 429 Too Many Requests follow the same rules as UploadFiles;
+// waiting before a retry stops as soon as ctx is done, in which case
+// ctx.Err() is returned.
+func (bot *BotAPI) UploadFilesWithContext(ctx context.Context, endpoint string, params Params, files []RequestFile) (*APIResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	replayable := canReplayUploadFiles(files)
 	for attempt := 0; ; attempt++ {
-		resp, err := bot.uploadFilesOnce(endpoint, params, files)
-		if err != nil && replayable && bot.sleepRetryAfter(endpoint, attempt, err) {
-			continue
+		resp, err := bot.uploadFilesOnce(ctx, endpoint, params, files)
+		if err == nil || !replayable {
+			return resp, err
 		}
-		return resp, err
+		retry, waitErr := bot.sleepRetryAfter(ctx, endpoint, attempt, err)
+		if waitErr != nil {
+			return resp, waitErr
+		}
+		if !retry {
+			return resp, err
+		}
 	}
 }
 
-func (bot *BotAPI) uploadFilesOnce(endpoint string, params Params, files []RequestFile) (*APIResponse, error) {
+func (bot *BotAPI) uploadFilesOnce(ctx context.Context, endpoint string, params Params, files []RequestFile) (*APIResponse, error) {
 	r, w := io.Pipe()
 	m := multipart.NewWriter(w)
+
+	pipeDone := make(chan struct{})
+	defer close(pipeDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			// Close the write side so that both the writer goroutine and
+			// the transport's pending body read are unblocked, and the read
+			// fails with ctx.Err() rather than io.ErrClosedPipe. Otherwise
+			// the caller could get the pipe error instead of the context
+			// error if the transport notices the failed read first.
+			_ = w.CloseWithError(ctx.Err())
+		case <-pipeDone:
+		}
+	}()
 
 	// This code modified from the very helpful @HirbodBehnam
 	// https://github.com/go-telegram-bot-api/telegram-bot-api/issues/354#issuecomment-663856473
@@ -342,28 +439,9 @@ func (bot *BotAPI) uploadFilesOnce(endpoint string, params Params, files []Reque
 
 		for _, file := range files {
 			if file.Data.NeedsUpload() {
-				name, reader, err := file.Data.UploadData()
-				if err != nil {
+				if err := writeFormFile(m, file); err != nil {
 					w.CloseWithError(err)
 					return
-				}
-
-				part, err := m.CreateFormFile(file.Name, name)
-				if err != nil {
-					w.CloseWithError(err)
-					return
-				}
-
-				if _, err := io.Copy(part, reader); err != nil {
-					w.CloseWithError(err)
-					return
-				}
-
-				if closer, ok := reader.(io.ReadCloser); ok {
-					if err = closer.Close(); err != nil {
-						w.CloseWithError(err)
-						return
-					}
 				}
 			} else {
 				value := file.Data.SendData()
@@ -382,8 +460,9 @@ func (bot *BotAPI) uploadFilesOnce(endpoint string, params Params, files []Reque
 
 	method := fmt.Sprintf(bot.apiEndpoint, bot.Token, endpoint)
 
-	req, err := http.NewRequest(http.MethodPost, method, r)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, method, r)
 	if err != nil {
+		_ = r.Close()
 		return nil, err
 	}
 
@@ -391,6 +470,7 @@ func (bot *BotAPI) uploadFilesOnce(endpoint string, params Params, files []Reque
 
 	resp, err := bot.Client.Do(req)
 	if err != nil {
+		_ = r.Close()
 		return nil, bot.redactToken(err)
 	}
 	defer closeBody(resp.Body)
@@ -441,7 +521,12 @@ func (bot *BotAPI) GetFileDirectURL(fileID string) (string, error) {
 // and so you may get this data from BotAPI.Self without the need for
 // another request.
 func (bot *BotAPI) GetMe() (User, error) {
-	resp, err := bot.MakeRequest("getMe", nil)
+	return bot.GetMeWithContext(context.Background())
+}
+
+// GetMeWithContext fetches the currently authenticated bot with a context.
+func (bot *BotAPI) GetMeWithContext(ctx context.Context) (User, error) {
+	resp, err := bot.MakeRequestWithContext(ctx, "getMe", nil)
 	if err != nil {
 		return User{}, err
 	}
@@ -469,8 +554,35 @@ func hasFilesNeedingUpload(files []RequestFile) bool {
 	return false
 }
 
+func (bot *BotAPI) getShutdownChannel() chan interface{} {
+	bot.stopMu.Lock()
+	defer bot.stopMu.Unlock()
+
+	if bot.shutdownChannel == nil {
+		bot.shutdownChannel = make(chan interface{})
+		return bot.shutdownChannel
+	}
+
+	select {
+	case <-bot.shutdownChannel:
+		bot.shutdownChannel = make(chan interface{})
+	default:
+	}
+
+	return bot.shutdownChannel
+}
+
 // Request sends a Chattable to Telegram, and returns the APIResponse.
 func (bot *BotAPI) Request(c Chattable) (*APIResponse, error) {
+	return bot.RequestWithContext(context.Background(), c)
+}
+
+// RequestWithContext sends a Chattable to Telegram with a context, and returns the APIResponse.
+func (bot *BotAPI) RequestWithContext(ctx context.Context, c Chattable) (*APIResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	params, err := c.params()
 	if err != nil {
 		return nil, err
@@ -480,9 +592,9 @@ func (bot *BotAPI) Request(c Chattable) (*APIResponse, error) {
 		files := t.files()
 
 		// If we have files that need to be uploaded, we should delegate the
-		// request to UploadFile.
+		// request to UploadFilesWithContext.
 		if hasFilesNeedingUpload(files) {
-			return bot.UploadFiles(t.method(), params, files)
+			return bot.UploadFilesWithContext(ctx, t.method(), params, files)
 		}
 
 		// However, if there are no files to be uploaded, there's likely things
@@ -492,7 +604,25 @@ func (bot *BotAPI) Request(c Chattable) (*APIResponse, error) {
 		}
 	}
 
-	return bot.MakeRequest(c.method(), params)
+	return bot.MakeRequestWithContext(ctx, c.method(), params)
+}
+
+// RequestTypedWithContext executes a Chattable request with a context and decodes the result into T.
+func RequestTypedWithContext[T any](ctx context.Context, bot *BotAPI, c Chattable) (T, error) {
+	resp, err := bot.RequestWithContext(ctx, c)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+
+	var result T
+	err = json.Unmarshal(resp.Result, &result)
+	return result, err
+}
+
+// RequestTyped executes a Chattable request and decodes the result into T.
+func RequestTyped[T any](bot *BotAPI, c Chattable) (T, error) {
+	return RequestTypedWithContext[T](context.Background(), bot, c)
 }
 
 // Send will send a Chattable item to Telegram and provides the
@@ -505,7 +635,13 @@ func (bot *BotAPI) Request(c Chattable) (*APIResponse, error) {
 // unmarshal error. Prefer Request for methods whose documented return
 // type is not a Message.
 func (bot *BotAPI) Send(c Chattable) (Message, error) {
-	resp, err := bot.Request(c)
+	return bot.SendWithContext(context.Background(), c)
+}
+
+// SendWithContext sends a Chattable item to Telegram with a context and provides the
+// returned Message.
+func (bot *BotAPI) SendWithContext(ctx context.Context, c Chattable) (Message, error) {
+	resp, err := bot.RequestWithContext(ctx, c)
 	if err != nil {
 		return Message{}, err
 	}
@@ -522,15 +658,12 @@ func (bot *BotAPI) Send(c Chattable) (Message, error) {
 
 // SendMediaGroup sends a media group and returns the resulting messages.
 func (bot *BotAPI) SendMediaGroup(config MediaGroupConfig) ([]Message, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return nil, err
-	}
+	return bot.SendMediaGroupWithContext(context.Background(), config)
+}
 
-	var messages []Message
-	err = json.Unmarshal(resp.Result, &messages)
-
-	return messages, err
+// SendMediaGroupWithContext sends a media group with a context and returns the resulting messages.
+func (bot *BotAPI) SendMediaGroupWithContext(ctx context.Context, config MediaGroupConfig) ([]Message, error) {
+	return RequestTypedWithContext[[]Message](ctx, bot, config)
 }
 
 // GetUserProfilePhotos gets a user's profile photos.
@@ -553,15 +686,12 @@ func (bot *BotAPI) GetUserProfilePhotos(config UserProfilePhotosConfig) (UserPro
 //
 // Requires FileID.
 func (bot *BotAPI) GetFile(config FileConfig) (File, error) {
-	resp, err := bot.Request(config)
-	if err != nil {
-		return File{}, err
-	}
+	return bot.GetFileWithContext(context.Background(), config)
+}
 
-	var file File
-	err = json.Unmarshal(resp.Result, &file)
-
-	return file, err
+// GetFileWithContext returns a File which can download a file from Telegram with a context.
+func (bot *BotAPI) GetFileWithContext(ctx context.Context, config FileConfig) (File, error) {
+	return RequestTypedWithContext[File](ctx, bot, config)
 }
 
 // GetUpdates fetches updates.
@@ -572,7 +702,12 @@ func (bot *BotAPI) GetFile(config FileConfig) (File, error) {
 // Set Timeout to a large number to reduce requests, so you can get updates
 // instantly instead of having to wait between requests.
 func (bot *BotAPI) GetUpdates(config UpdateConfig) ([]Update, error) {
-	resp, err := bot.Request(config)
+	return bot.GetUpdatesWithContext(context.Background(), config)
+}
+
+// GetUpdatesWithContext fetches updates with a context.
+func (bot *BotAPI) GetUpdatesWithContext(ctx context.Context, config UpdateConfig) ([]Update, error) {
+	resp, err := bot.RequestWithContext(ctx, config)
 	if err != nil {
 		return []Update{}, err
 	}
@@ -598,27 +733,81 @@ func (bot *BotAPI) GetWebhookInfo() (WebhookInfo, error) {
 }
 
 // GetUpdatesChan starts and returns a channel for getting updates.
+//
+// Polling runs until StopReceivingUpdates is called, which aborts the current
+// long poll and closes the channel. StopReceivingUpdates only stops pollers
+// that are already running, so calling it before GetUpdatesChan does not
+// prevent GetUpdatesChan from starting a new poller. For a race-free shutdown,
+// use GetUpdatesChanWithContext and cancel its context instead.
+//
+// Polling can be restarted on the same BotAPI after it was stopped. When
+// restarting, set config.Offset to the UpdateID of the last update you
+// received plus one; otherwise Telegram delivers the last, still unconfirmed
+// batch of updates again.
 func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) UpdatesChannel {
+	return bot.GetUpdatesChanWithContext(context.Background(), config)
+}
+
+// GetUpdatesChanWithContext starts and returns a channel for getting updates with a context.
+// Cancelling ctx aborts the current long poll and closes the channel.
+//
+// Cancelling ctx is the race-free way to shut polling down: it stops exactly
+// this poller, whether ctx is cancelled before, during or after the call.
+// StopReceivingUpdates also stops this poller, but only if it is already
+// running when StopReceivingUpdates is called.
+//
+// When restarting polling, set config.Offset to the UpdateID of the last
+// update you received plus one; otherwise Telegram delivers the last, still
+// unconfirmed batch of updates again.
+func (bot *BotAPI) GetUpdatesChanWithContext(ctx context.Context, config UpdateConfig) UpdatesChannel {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	ch := make(chan Update, bot.Buffer)
 
+	pollCtx, pollCancel := context.WithCancel(ctx)
+	stopCh := bot.getShutdownChannel()
+
 	go func() {
+		select {
+		case <-stopCh:
+			pollCancel()
+		case <-pollCtx.Done():
+		}
+	}()
+
+	go func() {
+		defer close(ch)
+		defer pollCancel()
+
 		for {
 			select {
-			case <-bot.shutdownChannel:
-				close(ch)
+			case <-pollCtx.Done():
 				return
 			default:
 			}
 
-			updates, err := bot.GetUpdates(config)
+			updates, err := bot.GetUpdatesWithContext(pollCtx, config)
 			if err != nil {
+				if pollCtx.Err() != nil {
+					return
+				}
+
 				// Network errors from http.Post embed the full request URL,
 				// which in our case contains bot.Token. Strip it before
 				// logging so the token can't leak to logs.
 				redacted := strings.ReplaceAll(err.Error(), bot.Token, "<token>")
 				log.Println(redacted)
 				log.Println("Failed to get updates, retrying in 3 seconds...")
-				time.Sleep(time.Second * 3)
+
+				timer := time.NewTimer(time.Second * 3)
+				select {
+				case <-pollCtx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
 
 				continue
 			}
@@ -626,7 +815,11 @@ func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) UpdatesChannel {
 			for _, update := range updates {
 				if update.UpdateID >= config.Offset {
 					config.Offset = update.UpdateID + 1
-					ch <- update
+					select {
+					case <-pollCtx.Done():
+						return
+					case ch <- update:
+					}
 				}
 			}
 		}
@@ -635,12 +828,36 @@ func (bot *BotAPI) GetUpdatesChan(config UpdateConfig) UpdatesChannel {
 	return ch
 }
 
-// StopReceivingUpdates stops the go routine which receives updates
+// StopReceivingUpdates stops the go routine which receives updates.
+// It is idempotent; calling it multiple times is safe.
+//
+// It only stops pollers started by GetUpdatesChan or GetUpdatesChanWithContext
+// that are already running. Calling it before GetUpdatesChan does not prevent a
+// later GetUpdatesChan from starting a new poller; this differs from v6.0.0,
+// where the later call returned an already closed channel. To shut polling
+// down without that race, use GetUpdatesChanWithContext and cancel its context.
+//
+// When restarting polling after StopReceivingUpdates, set config.Offset to the
+// UpdateID of the last update you received plus one; otherwise Telegram
+// delivers the last, still unconfirmed batch of updates again.
 func (bot *BotAPI) StopReceivingUpdates() {
 	if bot.Debug {
 		log.Println("Stopping the update receiver routine...")
 	}
-	close(bot.shutdownChannel)
+
+	bot.stopMu.Lock()
+	defer bot.stopMu.Unlock()
+
+	if bot.shutdownChannel == nil {
+		return
+	}
+
+	select {
+	case <-bot.shutdownChannel:
+		// already closed
+	default:
+		close(bot.shutdownChannel)
+	}
 }
 
 // WebhookSecretTokenHeader is the header name containing the webhook secret token sent by Telegram.

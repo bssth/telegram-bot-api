@@ -1,6 +1,7 @@
 package tgbotapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -361,10 +362,73 @@ func TestSleepDuration_DefaultsToTimeSleep(t *testing.T) {
 
 	const d = 20 * time.Millisecond
 	start := time.Now()
-	bot.sleepDuration(d)
+	if err := bot.sleepDuration(context.Background(), d); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if elapsed := time.Since(start); elapsed < d {
 		t.Fatalf("expected sleepDuration to wait at least %v, got %v", d, elapsed)
+	}
+}
+
+func TestSleepDuration_StopsWhenContextDone(t *testing.T) {
+	bot := &BotAPI{}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := bot.sleepDuration(ctx, time.Minute)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("sleepDuration did not stop when the context was done (took %v)", elapsed)
+	}
+}
+
+func TestMakeRequestWithContext_CancelDuringRetryWait(t *testing.T) {
+	var callCount int32
+	bot, _ := newRetryTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		writeTooManyRequests(w, r, 60)
+	})
+	bot.MaxRetries = 3
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := bot.MakeRequestWithContext(ctx, "sendMessage", Params{"chat_id": "1", "text": "test"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("retry wait ignored the context (took %v)", elapsed)
+	}
+	if got := atomic.LoadInt32(&callCount); got != 1 {
+		t.Fatalf("expected 1 call, got %d", got)
+	}
+}
+
+func TestUploadFilesWithContext_CancelDuringRetryWait(t *testing.T) {
+	var callCount int32
+	bot, _ := newRetryTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		writeTooManyRequests(w, r, 60)
+	})
+	bot.MaxRetries = 3
+
+	ctx, cancel := context.WithCancel(context.Background())
+	bot.sleepFunc = func(time.Duration) { cancel() }
+
+	files := []RequestFile{{Name: "document", Data: FileBytes{Name: "a.txt", Bytes: []byte("payload")}}}
+	_, err := bot.UploadFilesWithContext(ctx, "sendDocument", Params{"chat_id": "1"}, files)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if got := atomic.LoadInt32(&callCount); got != 1 {
+		t.Fatalf("expected 1 call, got %d", got)
 	}
 }
 
