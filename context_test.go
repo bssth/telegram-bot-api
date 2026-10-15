@@ -66,21 +66,54 @@ func TestMakeRequestWithContext_Cancelled(t *testing.T) {
 	}
 }
 
+// endlessReader yields data forever, so an upload reading from it is still
+// being written when the request is cancelled.
+type endlessReader struct{}
+
+func (endlessReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+// failingReadCloser fails every Read and records when it is closed.
+type failingReadCloser struct {
+	err       error
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func (r *failingReadCloser) Read([]byte) (int, error) {
+	return 0, r.err
+}
+
+func (r *failingReadCloser) Close() error {
+	r.closeOnce.Do(func() { close(r.closed) })
+	return nil
+}
+
 func TestUploadFilesWithContext_Cancelled(t *testing.T) {
 	reqReceived := make(chan struct{})
+	stopServer := make(chan struct{})
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(reqReceived)
+		// Never respond before the test is done: a response that reaches
+		// the client before cancel() would make the call return a decode
+		// error instead of context.Canceled.
 		_, _ = io.Copy(io.Discard, r.Body)
+		<-stopServer
 	}))
 	defer srv.Close()
+	defer close(stopServer)
 
 	bot := newTestBotAPI(srv.URL)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	errCh := make(chan error, 1)
 
 	go func() {
-		file := FileBytes{Name: "test.txt", Bytes: []byte("test content")}
+		file := FileReader{Name: "test.bin", Reader: endlessReader{}}
 		reqFile := RequestFile{Name: "document", Data: file}
 		_, err := bot.UploadFilesWithContext(ctx, "sendDocument", Params{"chat_id": "123"}, []RequestFile{reqFile})
 		errCh <- err
@@ -101,6 +134,31 @@ func TestUploadFilesWithContext_Cancelled(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("UploadFilesWithContext did not return promptly after cancel")
+	}
+}
+
+func TestUploadFiles_ClosesReaderOnCopyError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
+	}))
+	defer srv.Close()
+
+	bot := newTestBotAPI(srv.URL)
+
+	readErr := errors.New("read failed")
+	reader := &failingReadCloser{err: readErr, closed: make(chan struct{})}
+	files := []RequestFile{{Name: "document", Data: FileReader{Name: "broken.txt", Reader: reader}}}
+
+	_, err := bot.UploadFiles("sendDocument", Params{"chat_id": "123"}, files)
+	if !errors.Is(err, readErr) {
+		t.Fatalf("expected the read error, got: %v", err)
+	}
+
+	select {
+	case <-reader.closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("file reader was not closed after the upload failed")
 	}
 }
 
