@@ -35,9 +35,14 @@ import tgbotapi "github.com/bssth/telegram-bot-api/v7"
 
 Go 1.24 or newer is required.
 
-The major version is **v7**: the API is not source-compatible with upstream
-v5 (see below), so the fork starts a new major version instead of breaking
-code that pins `/v5`.
+> **v7 is not released yet** (see the [changelog](./docs/changelog.md)).
+> Until `v7.0.0` is tagged, `go get` resolves `/v7` to a pseudo-version of
+> the latest `master` commit.
+
+The major version is **v7** because of the source-incompatible v6 → v7
+changes listed in [BREAKING.md](./BREAKING.md). v6 was the fork's first major
+version, started because the API is not source-compatible with upstream v5
+(see below).
 
 ## Migrating from `go-telegram-bot-api/telegram-bot-api`
 
@@ -56,9 +61,10 @@ code that pins `/v5`.
    as the one it replaces.
 
 2. Fix whatever no longer compiles using [**BREAKING.md**](./BREAKING.md). It
-   lists every source-incompatible change between upstream v5.5.1 (Bot API
-   6.0) and this fork, grouped by topic, with before/after snippets. Most of
-   them come from Telegram itself: `Thumb` became `Thumbnail`,
+   lists every source-incompatible change grouped by major version (v6 → v7,
+   then v5 → v6), each with topic sections and before/after snippets. Coming
+   from upstream v5.5.1 (Bot API 6.0), apply both. Most of the v5 → v6
+   changes come from Telegram itself: `Thumb` became `Thumbnail`,
    `ReplyToMessageID` became `ReplyParameters`, `DisableWebPagePreview` became
    `LinkPreviewOptions`, and so on.
 
@@ -291,9 +297,10 @@ doing while the code was already open:
   short of EOF, and `net/http` will discard the underlying TCP connection if
   the body isn't fully consumed — no keep-alive reuse. The fork drains the
   remainder before `Close()`.
-- **`Params.AddAny(key, value any) error`.** Replaces the older
-  `AddInterface` — same behavior, but uses `any` and has a clearer name.
-  `AddInterface` is kept as an alias for existing callers.
+- **`Params.AddAny(key, value any) error`.** Replaces upstream's
+  `interface{}`-based helper — same behavior, but uses `any` and has a
+  clearer name. The old name was removed in v7 (see
+  [BREAKING.md](./BREAKING.md)).
 - **`Params.AddFirstValid` errors are propagated.** The upstream pattern
   ignored its return value inside `params()` methods, so JSON marshaling
   errors in complex fields were silently swallowed. The fork consistently
