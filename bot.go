@@ -37,10 +37,27 @@ type BotAPI struct {
 	// or different. An empty value disables verification.
 	WebhookSecretToken string `json:"webhook_secret_token,omitempty"`
 
+	// MaxRetries is the maximum number of automatic retries on 429 Too Many
+	// Requests errors. When 0 (default), automatic retries are disabled.
+	// A 429 response without a positive retry_after is never retried.
+	// Uploads are retried only when every file to upload is a FileBytes or a
+	// FilePath; requests uploading a FileReader or any other RequestFileData
+	// implementation cannot be safely replayed and are not retried.
+	MaxRetries int `json:"max_retries"`
+
+	// MaxRetryAfter is an optional upper limit on the retry_after duration the
+	// bot is willing to wait before retrying. If Telegram asks to wait longer
+	// than MaxRetryAfter, the request is not retried and the 429 error is
+	// returned immediately (see IsTooManyRequests). When 0 (default) or
+	// negative, there is no limit and the full retry_after duration is waited.
+	MaxRetryAfter time.Duration `json:"max_retry_after"`
+
 	Self            User       `json:"-"`
 	Client          HTTPClient `json:"-"`
 	shutdownChannel chan interface{}
 	stopMu          sync.Mutex
+
+	sleepFunc func(time.Duration)
 
 	apiEndpoint  string
 	fileEndpoint string
@@ -140,17 +157,100 @@ func closeBody(body io.ReadCloser) {
 	body.Close()
 }
 
+// IsTooManyRequests checks whether an error is a Telegram 429 Too Many Requests
+// (flood limit) error. If so, it returns the retry_after duration and ok = true.
+func IsTooManyRequests(err error) (retryAfter time.Duration, ok bool) {
+	var apiErr *Error
+	if errors.As(err, &apiErr) && apiErr.Code == http.StatusTooManyRequests {
+		return time.Duration(apiErr.RetryAfter) * time.Second, true
+	}
+	var valErr Error
+	if errors.As(err, &valErr) && valErr.Code == http.StatusTooManyRequests {
+		return time.Duration(valErr.RetryAfter) * time.Second, true
+	}
+	return 0, false
+}
+
+// sleepDuration waits for d, or until ctx is done, whichever comes first. It
+// returns ctx.Err() if ctx is done. Tests replace the wait itself through
+// sleepFunc.
+func (bot *BotAPI) sleepDuration(ctx context.Context, d time.Duration) error {
+	if bot.sleepFunc != nil {
+		bot.sleepFunc(d)
+		return ctx.Err()
+	}
+
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// sleepRetryAfter reports whether a request to endpoint that failed with err
+// on the given zero-based attempt should be retried. If so, it waits for the
+// retry_after duration requested by Telegram before returning true. A 429
+// without a positive retry_after, or with a retry_after above MaxRetryAfter
+// (when MaxRetryAfter > 0), is not retried. If ctx is done while waiting,
+// sleepRetryAfter returns false and ctx.Err().
+func (bot *BotAPI) sleepRetryAfter(ctx context.Context, endpoint string, attempt int, err error) (bool, error) {
+	if attempt >= bot.MaxRetries {
+		return false, nil
+	}
+	retryAfter, ok := IsTooManyRequests(err)
+	if !ok || retryAfter <= 0 {
+		return false, nil
+	}
+	if bot.MaxRetryAfter > 0 && retryAfter > bot.MaxRetryAfter {
+		return false, nil
+	}
+	if bot.Debug {
+		log.Printf("Endpoint: %s, 429 Too Many Requests, retrying in %v (attempt %d/%d)\n", endpoint, retryAfter, attempt+1, bot.MaxRetries)
+	}
+	if err := bot.sleepDuration(ctx, retryAfter); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // MakeRequest makes a request to a specific endpoint with our token.
+// When BotAPI.MaxRetries > 0, requests encountering HTTP 429 Too Many Requests
+// errors are automatically retried up to MaxRetries times after waiting the
+// retry_after period. A 429 without a positive retry_after, or whose
+// retry_after exceeds BotAPI.MaxRetryAfter (when set), is returned immediately.
 func (bot *BotAPI) MakeRequest(endpoint string, params Params) (*APIResponse, error) {
 	return bot.MakeRequestWithContext(context.Background(), endpoint, params)
 }
 
-// MakeRequestWithContext makes a request to a specific endpoint with our token and a context.
+// MakeRequestWithContext makes a request to a specific endpoint with our token
+// and a context. Retries on 429 Too Many Requests follow the same rules as
+// MakeRequest; waiting before a retry stops as soon as ctx is done, in which
+// case ctx.Err() is returned.
 func (bot *BotAPI) MakeRequestWithContext(ctx context.Context, endpoint string, params Params) (*APIResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
+	for attempt := 0; ; attempt++ {
+		resp, err := bot.makeRequestOnce(ctx, endpoint, params)
+		if err == nil {
+			return resp, nil
+		}
+		retry, waitErr := bot.sleepRetryAfter(ctx, endpoint, attempt, err)
+		if waitErr != nil {
+			return resp, waitErr
+		}
+		if !retry {
+			return resp, err
+		}
+	}
+}
+
+func (bot *BotAPI) makeRequestOnce(ctx context.Context, endpoint string, params Params) (*APIResponse, error) {
 	if bot.Debug {
 		log.Printf("Endpoint: %s, params: %v\n", endpoint, params)
 	}
@@ -222,6 +322,26 @@ func (bot *BotAPI) decodeAPIResponse(responseBody io.Reader, resp *APIResponse) 
 	return data, nil
 }
 
+// canReplayUploadFiles reports whether files can be sent again on a retry.
+// Only FileBytes and FilePath are known to yield the same data every time
+// UploadData is called. Any other uploaded RequestFileData (FileReader, custom
+// implementations, structs embedding them) may wrap a stream that is consumed
+// by the first attempt, so it is treated as not replayable. Files that don't
+// need to be uploaded (FileID, FileURL, ...) are always replayable.
+func canReplayUploadFiles(files []RequestFile) bool {
+	for _, file := range files {
+		if file.Data == nil || !file.Data.NeedsUpload() {
+			continue
+		}
+		switch file.Data.(type) {
+		case FileBytes, *FileBytes, FilePath, *FilePath:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // writeFormFile copies a single file that needs uploading into the multipart
 // writer. The reader returned by UploadData is closed before writeFormFile
 // returns, even when the copy fails part-way (for example because the request
@@ -251,16 +371,41 @@ func writeFormFile(m *multipart.Writer, file RequestFile) (err error) {
 }
 
 // UploadFiles makes a request to the API with files.
+// When BotAPI.MaxRetries > 0, requests encountering HTTP 429 Too Many Requests
+// errors are automatically retried up to MaxRetries times after waiting the
+// retry_after period (see MakeRequest), provided every file to upload is a
+// FileBytes or a FilePath. Uploads containing a FileReader or any other
+// RequestFileData implementation may not be replayable and are never retried.
 func (bot *BotAPI) UploadFiles(endpoint string, params Params, files []RequestFile) (*APIResponse, error) {
 	return bot.UploadFilesWithContext(context.Background(), endpoint, params, files)
 }
 
 // UploadFilesWithContext makes a request to the API with files and a context.
+// Retries on 429 Too Many Requests follow the same rules as UploadFiles;
+// waiting before a retry stops as soon as ctx is done, in which case
+// ctx.Err() is returned.
 func (bot *BotAPI) UploadFilesWithContext(ctx context.Context, endpoint string, params Params, files []RequestFile) (*APIResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
+	replayable := canReplayUploadFiles(files)
+	for attempt := 0; ; attempt++ {
+		resp, err := bot.uploadFilesOnce(ctx, endpoint, params, files)
+		if err == nil || !replayable {
+			return resp, err
+		}
+		retry, waitErr := bot.sleepRetryAfter(ctx, endpoint, attempt, err)
+		if waitErr != nil {
+			return resp, waitErr
+		}
+		if !retry {
+			return resp, err
+		}
+	}
+}
+
+func (bot *BotAPI) uploadFilesOnce(ctx context.Context, endpoint string, params Params, files []RequestFile) (*APIResponse, error) {
 	r, w := io.Pipe()
 	m := multipart.NewWriter(w)
 

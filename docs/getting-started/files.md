@@ -44,6 +44,13 @@ file := tgbotapi.FileURL("https://i.imgur.com/unQLJIb.jpg")
 Use an `io.Reader` to provide file contents as needed. Requires a filename for
 the virtual file.
 
+When `BotAPI.MaxRetries` is enabled, uploads are automatically retried on 429
+Too Many Requests responses only if every uploaded file is a `FileBytes` or a
+`FilePath` (`FileID` and `FileURL` are not uploaded and don't prevent retries).
+A `FileReader` stream is consumed during upload, so requests uploading a
+`FileReader`, or any custom `RequestFileData` implementation, are never retried.
+Use `FileBytes` or `FilePath` if you need automatic retries.
+
 ```go
 var reader io.Reader
 
