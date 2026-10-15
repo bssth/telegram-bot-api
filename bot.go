@@ -4,6 +4,7 @@ package tgbotapi
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,14 @@ type BotAPI struct {
 	Token  string `json:"token"`
 	Debug  bool   `json:"debug"`
 	Buffer int    `json:"buffer"`
+
+	// WebhookSecretToken is the secret expected in the
+	// X-Telegram-Bot-Api-Secret-Token header of incoming webhook requests.
+	// It must match the WebhookConfig.SecretToken sent to Telegram with
+	// setWebhook. When it is set, HandleUpdate, ListenForWebhook and
+	// ListenForWebhookRespReqFormat reject requests whose header is missing
+	// or different. An empty value disables verification.
+	WebhookSecretToken string `json:"webhook_secret_token,omitempty"`
 
 	// MaxRetries is the maximum number of automatic retries on 429 Too Many
 	// Requests errors. When 0 (default), automatic retries are disabled.
@@ -634,17 +643,26 @@ func (bot *BotAPI) StopReceivingUpdates() {
 	close(bot.shutdownChannel)
 }
 
+// WebhookSecretTokenHeader is the header name containing the webhook secret token sent by Telegram.
+const WebhookSecretTokenHeader = "X-Telegram-Bot-Api-Secret-Token"
+
+// ErrBadSecretToken is returned by HandleUpdate when bot.WebhookSecretToken
+// is set and the request's X-Telegram-Bot-Api-Secret-Token header is missing
+// or does not match it.
+var ErrBadSecretToken = errors.New("bad secret token")
+
 // ListenForWebhook registers a http handler for a webhook.
+//
+// If bot.WebhookSecretToken is set, requests without a matching
+// X-Telegram-Bot-Api-Secret-Token header are rejected with
+// 401 Unauthorized. The field is read on every request (see HandleUpdate).
 func (bot *BotAPI) ListenForWebhook(pattern string) UpdatesChannel {
 	ch := make(chan Update, bot.Buffer)
 
 	http.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		update, err := bot.HandleUpdate(r)
 		if err != nil {
-			errMsg, _ := json.Marshal(map[string]string{"error": err.Error()})
-			w.WriteHeader(http.StatusBadRequest)
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(errMsg)
+			writeWebhookError(w, err)
 			return
 		}
 
@@ -655,6 +673,10 @@ func (bot *BotAPI) ListenForWebhook(pattern string) UpdatesChannel {
 }
 
 // ListenForWebhookRespReqFormat registers a http handler for a single incoming webhook.
+//
+// If bot.WebhookSecretToken is set, a request without a matching
+// X-Telegram-Bot-Api-Secret-Token header is rejected with
+// 401 Unauthorized and the returned channel is closed without an update.
 func (bot *BotAPI) ListenForWebhookRespReqFormat(w http.ResponseWriter, r *http.Request) UpdatesChannel {
 	ch := make(chan Update, bot.Buffer)
 
@@ -663,10 +685,7 @@ func (bot *BotAPI) ListenForWebhookRespReqFormat(w http.ResponseWriter, r *http.
 
 		update, err := bot.HandleUpdate(r)
 		if err != nil {
-			errMsg, _ := json.Marshal(map[string]string{"error": err.Error()})
-			w.WriteHeader(http.StatusBadRequest)
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(errMsg)
+			writeWebhookError(w, err)
 			return
 		}
 
@@ -676,8 +695,35 @@ func (bot *BotAPI) ListenForWebhookRespReqFormat(w http.ResponseWriter, r *http.
 	return ch
 }
 
-// HandleUpdate parses and returns update received via webhook
+// writeWebhookError answers a webhook request rejected by HandleUpdate with a
+// JSON error body: 401 Unauthorized for ErrBadSecretToken, 400 Bad Request
+// otherwise.
+func writeWebhookError(w http.ResponseWriter, err error) {
+	errMsg, _ := json.Marshal(map[string]string{"error": err.Error()})
+	w.Header().Set("Content-Type", "application/json")
+	if errors.Is(err, ErrBadSecretToken) {
+		w.WriteHeader(http.StatusUnauthorized)
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+	}
+	_, _ = w.Write(errMsg)
+}
+
+// HandleUpdate parses and returns update received via webhook.
+//
+// If bot.WebhookSecretToken is set, the request's
+// X-Telegram-Bot-Api-Secret-Token header must match it, otherwise
+// ErrBadSecretToken is returned before the body is read. Custom handlers
+// should answer that error with 401 Unauthorized, e.g. by checking
+// errors.Is(err, tgbotapi.ErrBadSecretToken).
 func (bot *BotAPI) HandleUpdate(r *http.Request) (*Update, error) {
+	if bot.WebhookSecretToken != "" {
+		header := r.Header.Get(WebhookSecretTokenHeader)
+		if subtle.ConstantTimeCompare([]byte(header), []byte(bot.WebhookSecretToken)) != 1 {
+			return nil, ErrBadSecretToken
+		}
+	}
+
 	if r.Method != http.MethodPost {
 		err := errors.New("wrong HTTP method required POST")
 		return nil, err
