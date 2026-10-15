@@ -39,11 +39,23 @@ func main() {
 		// Create a new MessageConfig. We don't have text yet,
 		// so we leave it empty.
 		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+		msg.ReplyParameters = &tgbotapi.ReplyParameters{
+			MessageID: update.Message.MessageID,
+		}
 
 		// Extract the command from the Message.
 		switch update.Message.Command() {
 		case "help":
-			msg.Text = "I understand /sayhi and /status."
+			msg.Text = "I understand /sayhi, /status, and /docs."
+		case "docs":
+			msg.Text = "Documentation: https://bssth.github.io/telegram-bot-api/"
+			// Show a large preview of the documentation link above the text.
+			// PreferLargeMedia is ignored unless URL is set explicitly.
+			msg.LinkPreviewOptions = &tgbotapi.LinkPreviewOptions{
+				URL:              "https://bssth.github.io/telegram-bot-api/",
+				PreferLargeMedia: true,
+				ShowAboveText:    true,
+			}
 		case "sayhi":
 			msg.Text = "Hi :)"
 		case "status":

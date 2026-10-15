@@ -1,6 +1,7 @@
 # Golang bindings for the Telegram Bot API
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/bssth/telegram-bot-api/v7.svg)](https://pkg.go.dev/github.com/bssth/telegram-bot-api/v7)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://bssth.github.io/telegram-bot-api/)
 [![Test](https://github.com/bssth/telegram-bot-api/actions/workflows/test.yml/badge.svg)](https://github.com/bssth/telegram-bot-api/actions/workflows/test.yml)
 [![Bot API](https://img.shields.io/badge/Bot%20API-10.3-blue.svg)](https://core.telegram.org/bots/api-changelog)
 
@@ -20,8 +21,9 @@ The scope of this project is just to provide a wrapper around the API without
 any additional features. There are other projects for creating something with
 plugins and command handlers without having to design all that yourself.
 
-More tutorials and high-level information live in the [`docs`](./docs)
-directory.
+More tutorials and high-level information live in the
+[documentation book](https://bssth.github.io/telegram-bot-api/) (source in the
+[`docs`](./docs) directory).
 
 ## Installing
 

@@ -8,6 +8,10 @@
   - [Command Handling](./examples/command-handling.md)
   - [Keyboard](./examples/keyboard.md)
   - [Inline Keyboard](./examples/inline-keyboard.md)
+  - [Rich Messages](./examples/rich-messages.md)
+  - [Ephemeral Messages](./examples/ephemeral-messages.md)
+  - [Poll Media](./examples/poll-media.md)
+  - [Business Connections](./examples/business-connections.md)
 - [Change Log](./changelog.md)
 
 # Contributing
