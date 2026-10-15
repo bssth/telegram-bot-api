@@ -221,7 +221,7 @@ type jsonOutput struct {
 	Changelog   string   `json:"changelog"`
 	Title       string   `json:"title"`
 	Missing     []string `json:"missing"`
-	Extra       []string `json:"extra,omitempty"`
+	Extra       []string `json:"extra"`
 	Markdown    string   `json:"markdown"`
 }
 
@@ -229,13 +229,11 @@ func formatJSON(s *spec, missing, extra []string, verbose bool) ([]byte, error) 
 	if missing == nil {
 		missing = []string{}
 	}
+	// Without -v extras are not reported (null); with -v an empty list means
+	// that nothing extra was found.
 	var extraOut []string
 	if verbose {
-		if extra == nil {
-			extraOut = []string{}
-		} else {
-			extraOut = extra
-		}
+		extraOut = append([]string{}, extra...)
 	}
 	changelog := s.Changelog
 	if changelog == "" {
