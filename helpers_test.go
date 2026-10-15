@@ -105,6 +105,16 @@ func TestNewInlineQueryResultPhotoWithThumbnail(t *testing.T) {
 	}
 }
 
+func TestNewInlineQueryResultCachedSticker(t *testing.T) {
+	result := NewInlineQueryResultCachedSticker("id", "sticker")
+
+	if result.Type != "sticker" ||
+		result.ID != "id" ||
+		result.StickerID != "sticker" {
+		t.Fail()
+	}
+}
+
 func TestNewInlineQueryResultVideo(t *testing.T) {
 	result := NewInlineQueryResultVideo("id", "google.com")
 

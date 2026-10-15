@@ -164,6 +164,14 @@ func TestSpecMethodParams(t *testing.T) {
 	if (ChatMemberCountConfig{}).method() != "getChatMemberCount" {
 		t.Error("ChatMemberCountConfig uses the deprecated method name")
 	}
+
+	params = paramsOf(t, BanChatSenderChatConfig{ChatID: 100, SenderChatID: 200})
+	if params["chat_id"] != "100" || params["sender_chat_id"] != "200" {
+		t.Errorf("banChatSenderChat params = %v, want chat_id=100 and sender_chat_id=200", params)
+	}
+	if _, ok := params["until_date"]; ok {
+		t.Error("banChatSenderChat must not send until_date")
+	}
 }
 
 func TestSendPollMediaUpload(t *testing.T) {

@@ -44,7 +44,8 @@ func (p Params) AddNonZeroFloat(key string, value float64) {
 	}
 }
 
-// AddAny adds a value of any type by JSON-marshalling it.
+// AddAny adds a value of any type by JSON-marshalling it. Nil values and nil
+// pointers are skipped.
 func (p Params) AddAny(key string, value any) error {
 	if value == nil || (reflect.ValueOf(value).Kind() == reflect.Ptr && reflect.ValueOf(value).IsNil()) {
 		return nil

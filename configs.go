@@ -364,9 +364,9 @@ func (chat *BaseChat) params() (Params, error) {
 
 // EphemeralMessageParameters holds the parameters that make an outgoing
 // message ephemeral, i.e. visible only to a single recipient and the bot. It
-// is embedded (as EphemeralMessageParameters) by the send configs whose methods
-// support ephemeral messages and is sent on the wire as the JSON-serialized
-// ephemeral_message_parameters parameter.
+// is embedded by the send configs whose methods support ephemeral messages
+// and is sent on the wire as the JSON-serialized ephemeral_message_parameters
+// parameter.
 //
 // Leaving ReceiverUserID zero sends an ordinary, non-ephemeral message.
 type EphemeralMessageParameters struct {
@@ -387,8 +387,6 @@ type EphemeralMessageParameters struct {
 	// optional
 	ReplaceCallbackQueryMessage bool `json:"replace_callback_query_message,omitempty"`
 }
-
-
 
 // addTo writes the ephemeral_message_parameters parameter into params. It is
 // a named method rather than params() so that it does not collide with the
