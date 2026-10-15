@@ -95,6 +95,14 @@ func TestIsTooManyRequests(t *testing.T) {
 	})
 }
 
+// writeTooManyRequests drains the request body and answers with a Telegram
+// 429 Too Many Requests error carrying the given retry_after (in seconds).
+func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter int) {
+	_, _ = io.Copy(io.Discard, r.Body)
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = fmt.Fprintf(w, `{"ok":false,"error_code":429,"description":"Too Many Requests: retry after %d","parameters":{"retry_after":%d}}`, retryAfter, retryAfter)
+}
+
 func newRetryTestBot(t *testing.T, handler http.HandlerFunc) (*BotAPI, *httptest.Server) {
 	t.Helper()
 
@@ -210,63 +218,153 @@ func TestMakeRequest_RetryCountRespected(t *testing.T) {
 	}
 }
 
-func TestMakeRequest_MaxRetryAfterCapping(t *testing.T) {
+func TestMakeRequest_MaxRetryAfterExceeded(t *testing.T) {
 	var callCount int32
 	bot, _ := newRetryTestBot(t, func(w http.ResponseWriter, r *http.Request) {
 		call := atomic.AddInt32(&callCount, 1)
 		if call == 1 {
-			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = io.WriteString(w, `{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 60","parameters":{"retry_after":60}}`)
+			writeTooManyRequests(w, r, 60)
 			return
 		}
 		_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
 	})
 
-	bot.MaxRetries = 1
+	bot.MaxRetries = 3
 	bot.MaxRetryAfter = 5 * time.Second
-	var sleptDurations []time.Duration
 	bot.sleepFunc = func(d time.Duration) {
-		sleptDurations = append(sleptDurations, d)
+		t.Errorf("sleepFunc should not be called when retry_after exceeds MaxRetryAfter, got %v", d)
 	}
 
-	_, err := bot.MakeRequest("sendMessage", Params{"chat_id": "1"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	resp, err := bot.MakeRequest("sendMessage", Params{"chat_id": "1"})
+	if err == nil {
+		t.Fatal("expected 429 error when retry_after exceeds MaxRetryAfter, got nil")
 	}
 
-	if len(sleptDurations) != 1 || sleptDurations[0] != 5*time.Second {
-		t.Fatalf("expected sleep capped to 5s, got %v", sleptDurations)
+	if retryAfter, ok := IsTooManyRequests(err); !ok || retryAfter != 60*time.Second {
+		t.Fatalf("expected (60s, true) from IsTooManyRequests, got (%v, %v)", retryAfter, ok)
+	}
+
+	if resp == nil || resp.ErrorCode != http.StatusTooManyRequests {
+		t.Fatalf("expected response with error code 429, got %+v", resp)
+	}
+
+	if got := atomic.LoadInt32(&callCount); got != 1 {
+		t.Fatalf("expected exactly 1 call when retry_after exceeds MaxRetryAfter, got %d", got)
 	}
 }
 
-func TestMakeRequest_RealSleep(t *testing.T) {
-	var callCount int32
-	bot, _ := newRetryTestBot(t, func(w http.ResponseWriter, r *http.Request) {
-		call := atomic.AddInt32(&callCount, 1)
-		if call == 1 {
-			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = io.WriteString(w, `{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 10","parameters":{"retry_after":10}}`)
-			return
-		}
-		_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
-	})
+func TestMakeRequest_MaxRetryAfterNotExceeded(t *testing.T) {
+	tests := []struct {
+		name          string
+		retryAfter    int
+		maxRetryAfter time.Duration
+	}{
+		{name: "equal to limit", retryAfter: 5, maxRetryAfter: 5 * time.Second},
+		{name: "zero means no limit", retryAfter: 60, maxRetryAfter: 0},
+		{name: "negative means no limit", retryAfter: 60, maxRetryAfter: -time.Second},
+	}
 
-	bot.MaxRetries = 1
-	// Cap wait to 20ms so test runs fast with actual time.Sleep.
-	bot.MaxRetryAfter = 20 * time.Millisecond
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var callCount int32
+			bot, _ := newRetryTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+				call := atomic.AddInt32(&callCount, 1)
+				if call == 1 {
+					writeTooManyRequests(w, r, tt.retryAfter)
+					return
+				}
+				_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
+			})
 
+			bot.MaxRetries = 1
+			bot.MaxRetryAfter = tt.maxRetryAfter
+			var sleptDurations []time.Duration
+			bot.sleepFunc = func(d time.Duration) {
+				sleptDurations = append(sleptDurations, d)
+			}
+
+			if _, err := bot.MakeRequest("sendMessage", Params{"chat_id": "1"}); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if got := atomic.LoadInt32(&callCount); got != 2 {
+				t.Fatalf("expected 2 calls, got %d", got)
+			}
+
+			want := time.Duration(tt.retryAfter) * time.Second
+			if len(sleptDurations) != 1 || sleptDurations[0] != want {
+				t.Fatalf("expected full retry_after sleep [%v], got %v", want, sleptDurations)
+			}
+		})
+	}
+}
+
+func TestMakeRequest_NoRetryWithoutRetryAfter(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "missing parameters",
+			body: `{"ok":false,"error_code":429,"description":"Too Many Requests"}`,
+		},
+		{
+			name: "missing retry_after",
+			body: `{"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{}}`,
+		},
+		{
+			name: "zero retry_after",
+			body: `{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 0","parameters":{"retry_after":0}}`,
+		},
+		{
+			name: "negative retry_after",
+			body: `{"ok":false,"error_code":429,"description":"Too Many Requests","parameters":{"retry_after":-1}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var callCount int32
+			bot, _ := newRetryTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+				call := atomic.AddInt32(&callCount, 1)
+				if call == 1 {
+					w.WriteHeader(http.StatusTooManyRequests)
+					_, _ = io.WriteString(w, tt.body)
+					return
+				}
+				_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
+			})
+
+			bot.MaxRetries = 3
+			bot.sleepFunc = func(d time.Duration) {
+				t.Errorf("sleepFunc should not be called without a positive retry_after, got %v", d)
+			}
+
+			_, err := bot.MakeRequest("sendMessage", Params{"chat_id": "1"})
+			if err == nil {
+				t.Fatal("expected 429 error, got nil")
+			}
+
+			if retryAfter, ok := IsTooManyRequests(err); !ok || retryAfter > 0 {
+				t.Fatalf("expected (<=0, true) from IsTooManyRequests, got (%v, %v)", retryAfter, ok)
+			}
+
+			if got := atomic.LoadInt32(&callCount); got != 1 {
+				t.Fatalf("expected exactly 1 call without a positive retry_after, got %d", got)
+			}
+		})
+	}
+}
+
+func TestSleepDuration_DefaultsToTimeSleep(t *testing.T) {
+	bot := &BotAPI{}
+
+	const d = 20 * time.Millisecond
 	start := time.Now()
-	_, err := bot.MakeRequest("sendMessage", Params{"chat_id": "1"})
-	elapsed := time.Since(start)
+	bot.sleepDuration(d)
 
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if elapsed < 15*time.Millisecond {
-		t.Fatalf("expected elapsed time >= 15ms, got %v", elapsed)
-	}
-	if got := atomic.LoadInt32(&callCount); got != 2 {
-		t.Fatalf("expected 2 calls, got %d", got)
+	if elapsed := time.Since(start); elapsed < d {
+		t.Fatalf("expected sleepDuration to wait at least %v, got %v", d, elapsed)
 	}
 }
 
@@ -415,25 +513,155 @@ func TestUploadFiles_RetryFilePath(t *testing.T) {
 	}
 }
 
-func TestUploadFiles_NoRetryForFileReader(t *testing.T) {
+// customFileData is a RequestFileData implementation the library knows nothing
+// about, so uploads containing it must not be replayed.
+type customFileData struct {
+	reader io.Reader
+}
+
+func (f customFileData) NeedsUpload() bool { return true }
+
+func (f customFileData) UploadData() (string, io.Reader, error) {
+	return "custom.bin", f.reader, nil
+}
+
+func (f customFileData) SendData() string { panic("customFileData must be uploaded") }
+
+// embeddedFileReader embeds FileReader, so it is a different type and must not
+// be mistaken for a replayable upload.
+type embeddedFileReader struct {
+	FileReader
+}
+
+func TestCanReplayUploadFiles(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []RequestFile
+		want  bool
+	}{
+		{name: "no files", files: nil, want: true},
+		{name: "FileID", files: []RequestFile{{Name: "photo", Data: FileID("id")}}, want: true},
+		{name: "FileURL", files: []RequestFile{{Name: "photo", Data: FileURL("https://example.com/a.jpg")}}, want: true},
+		{name: "FileBytes", files: []RequestFile{{Name: "photo", Data: FileBytes{Name: "a.jpg"}}}, want: true},
+		{name: "*FileBytes", files: []RequestFile{{Name: "photo", Data: &FileBytes{Name: "a.jpg"}}}, want: true},
+		{name: "FilePath", files: []RequestFile{{Name: "photo", Data: FilePath("a.jpg")}}, want: true},
+		{name: "*FilePath", files: []RequestFile{{Name: "photo", Data: func() *FilePath { p := FilePath("a.jpg"); return &p }()}}, want: true},
+		{name: "FileReader", files: []RequestFile{{Name: "photo", Data: FileReader{Name: "a.jpg"}}}, want: false},
+		{name: "*FileReader", files: []RequestFile{{Name: "photo", Data: &FileReader{Name: "a.jpg"}}}, want: false},
+		{name: "custom RequestFileData", files: []RequestFile{{Name: "photo", Data: customFileData{}}}, want: false},
+		{name: "struct embedding FileReader", files: []RequestFile{{Name: "photo", Data: embeddedFileReader{}}}, want: false},
+		{
+			name: "FileBytes and FileID",
+			files: []RequestFile{
+				{Name: "photo", Data: FileBytes{Name: "a.jpg"}},
+				{Name: "thumbnail", Data: FileID("id")},
+			},
+			want: true,
+		},
+		{
+			name: "FileBytes and FileReader",
+			files: []RequestFile{
+				{Name: "photo", Data: FileBytes{Name: "a.jpg"}},
+				{Name: "thumbnail", Data: FileReader{Name: "b.jpg"}},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := canReplayUploadFiles(tt.files); got != tt.want {
+				t.Fatalf("canReplayUploadFiles() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUploadFiles_NoRetryForNonReplayableFiles(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []RequestFile
+	}{
+		{
+			name:  "FileReader",
+			files: []RequestFile{{Name: "photo", Data: FileReader{Name: "stream.jpg", Reader: strings.NewReader("STREAM_DATA")}}},
+		},
+		{
+			name:  "*FileReader",
+			files: []RequestFile{{Name: "photo", Data: &FileReader{Name: "stream.jpg", Reader: strings.NewReader("STREAM_DATA")}}},
+		},
+		{
+			name:  "custom RequestFileData",
+			files: []RequestFile{{Name: "document", Data: customFileData{reader: strings.NewReader("CUSTOM_DATA")}}},
+		},
+		{
+			name:  "struct embedding FileReader",
+			files: []RequestFile{{Name: "photo", Data: embeddedFileReader{FileReader{Name: "stream.jpg", Reader: strings.NewReader("STREAM_DATA")}}}},
+		},
+		{
+			name: "FileBytes mixed with FileReader",
+			files: []RequestFile{
+				{Name: "photo", Data: FileBytes{Name: "cat.jpg", Bytes: []byte("CAT_IMAGE_DATA")}},
+				{Name: "thumbnail", Data: FileReader{Name: "thumb.jpg", Reader: strings.NewReader("THUMB_DATA")}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var callCount int32
+			bot, _ := newRetryTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+				call := atomic.AddInt32(&callCount, 1)
+				if call == 1 {
+					writeTooManyRequests(w, r, 1)
+					return
+				}
+				_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":456}}`)
+			})
+
+			bot.MaxRetries = 2
+			bot.sleepFunc = func(d time.Duration) {
+				t.Errorf("sleepFunc should not be called for a non-replayable upload, got %v", d)
+			}
+
+			_, err := bot.UploadFiles("sendPhoto", Params{"chat_id": "1"}, tt.files)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+
+			if retryAfter, ok := IsTooManyRequests(err); !ok || retryAfter != time.Second {
+				t.Fatalf("expected (1s, true) from IsTooManyRequests, got (%v, %v)", retryAfter, ok)
+			}
+
+			if got := atomic.LoadInt32(&callCount); got != 1 {
+				t.Fatalf("expected exactly 1 call because the upload cannot be replayed, got %d", got)
+			}
+		})
+	}
+}
+
+func TestSendMediaGroup_NoRetryWhenMixedWithFileReader(t *testing.T) {
 	var callCount int32
 	bot, _ := newRetryTestBot(t, func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&callCount, 1)
-		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = io.WriteString(w, `{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 1","parameters":{"retry_after":1}}`)
+		call := atomic.AddInt32(&callCount, 1)
+		if call == 1 {
+			writeTooManyRequests(w, r, 1)
+			return
+		}
+		_, _ = io.WriteString(w, `{"ok":true,"result":[]}`)
 	})
 
 	bot.MaxRetries = 2
 	bot.sleepFunc = func(d time.Duration) {
-		t.Error("sleepFunc should not be called when FileReader upload fails")
+		t.Errorf("sleepFunc should not be called for a media group containing a FileReader, got %v", d)
 	}
 
-	reader := strings.NewReader("STREAM_DATA")
-	files := []RequestFile{
-		{Name: "photo", Data: FileReader{Name: "stream.jpg", Reader: reader}},
-	}
+	cfg := NewMediaGroup(1, []interface{}{
+		NewInputMediaPhoto(FileBytes{Name: "a.jpg", Bytes: []byte("A")}),
+		NewInputMediaPhoto(FileReader{Name: "b.jpg", Reader: strings.NewReader("B")}),
+	})
 
-	_, err := bot.UploadFiles("sendPhoto", Params{"chat_id": "1"}, files)
+	_, err := bot.SendMediaGroup(cfg)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -443,7 +671,43 @@ func TestUploadFiles_NoRetryForFileReader(t *testing.T) {
 	}
 
 	if got := atomic.LoadInt32(&callCount); got != 1 {
-		t.Fatalf("expected exactly 1 call because FileReader cannot be replayed, got %d", got)
+		t.Fatalf("expected exactly 1 call for a media group containing a FileReader, got %d", got)
+	}
+}
+
+func TestSendMediaGroup_RetryReplayableFiles(t *testing.T) {
+	var callCount int32
+	bot, _ := newRetryTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+		call := atomic.AddInt32(&callCount, 1)
+		if call == 1 {
+			writeTooManyRequests(w, r, 1)
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"ok":true,"result":[]}`)
+	})
+
+	bot.MaxRetries = 1
+	var sleptDurations []time.Duration
+	bot.sleepFunc = func(d time.Duration) {
+		sleptDurations = append(sleptDurations, d)
+	}
+
+	cfg := NewMediaGroup(1, []interface{}{
+		NewInputMediaPhoto(FileBytes{Name: "a.jpg", Bytes: []byte("A")}),
+		NewInputMediaPhoto(FileID("existing-file-id")),
+	})
+
+	if _, err := bot.SendMediaGroup(cfg); err != nil {
+		t.Fatalf("SendMediaGroup: expected success on retry, got: %v", err)
+	}
+
+	if got := atomic.LoadInt32(&callCount); got != 2 {
+		t.Fatalf("expected 2 calls, got %d", got)
+	}
+
+	if len(sleptDurations) != 1 || sleptDurations[0] != time.Second {
+		t.Fatalf("expected 1 sleep for 1s, got %v", sleptDurations)
 	}
 }
 
@@ -471,5 +735,100 @@ func TestSend_RetryWithChattable(t *testing.T) {
 	}
 	if got := atomic.LoadInt32(&callCount); got != 2 {
 		t.Fatalf("expected 2 calls, got %d", got)
+	}
+}
+
+// captureLogger is a BotLogger that records everything logged through it.
+type captureLogger struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (l *captureLogger) Println(v ...interface{}) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, _ = fmt.Fprintln(&l.buf, v...)
+}
+
+func (l *captureLogger) Printf(format string, v ...interface{}) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, _ = fmt.Fprintf(&l.buf, format, v...)
+}
+
+func (l *captureLogger) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+func TestMakeRequest_DebugLogsRetries(t *testing.T) {
+	logger := &captureLogger{}
+	prevLogger := log
+	if err := SetLogger(logger); err != nil {
+		t.Fatalf("SetLogger: %v", err)
+	}
+	t.Cleanup(func() { log = prevLogger })
+
+	var callCount int32
+	bot, _ := newRetryTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+		call := atomic.AddInt32(&callCount, 1)
+		if call <= 2 {
+			writeTooManyRequests(w, r, 3)
+			return
+		}
+		_, _ = io.WriteString(w, `{"ok":true,"result":{"message_id":123,"text":"test"}}`)
+	})
+
+	bot.Debug = true
+	bot.MaxRetries = 2
+	bot.sleepFunc = func(time.Duration) {}
+
+	if _, err := bot.MakeRequest("sendMessage", Params{"chat_id": "1", "text": "test"}); err != nil {
+		t.Fatalf("expected success on retry, got error: %v", err)
+	}
+
+	if got := atomic.LoadInt32(&callCount); got != 3 {
+		t.Fatalf("expected 3 calls, got %d", got)
+	}
+
+	output := logger.String()
+	for _, want := range []string{
+		"Endpoint: sendMessage, 429 Too Many Requests, retrying in 3s (attempt 1/2)",
+		"Endpoint: sendMessage, 429 Too Many Requests, retrying in 3s (attempt 2/2)",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected debug log to contain %q, got:\n%s", want, output)
+		}
+	}
+}
+
+func TestMakeRequest_NoRetryLogWithoutDebug(t *testing.T) {
+	logger := &captureLogger{}
+	prevLogger := log
+	if err := SetLogger(logger); err != nil {
+		t.Fatalf("SetLogger: %v", err)
+	}
+	t.Cleanup(func() { log = prevLogger })
+
+	var callCount int32
+	bot, _ := newRetryTestBot(t, func(w http.ResponseWriter, r *http.Request) {
+		call := atomic.AddInt32(&callCount, 1)
+		if call == 1 {
+			writeTooManyRequests(w, r, 1)
+			return
+		}
+		_, _ = io.WriteString(w, `{"ok":true,"result":true}`)
+	})
+
+	bot.MaxRetries = 1
+	bot.sleepFunc = func(time.Duration) {}
+
+	if _, err := bot.MakeRequest("sendMessage", Params{"chat_id": "1"}); err != nil {
+		t.Fatalf("expected success on retry, got error: %v", err)
+	}
+
+	if output := logger.String(); output != "" {
+		t.Fatalf("expected no log output when Debug is false, got:\n%s", output)
 	}
 }
