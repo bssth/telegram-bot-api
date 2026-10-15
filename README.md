@@ -214,6 +214,9 @@ and lists every missing type, field, method and parameter:
 go run ./internal/cmd/specdiff       # add -v to also list non-spec extras
 ```
 
+`-format text|markdown|json` picks the output (plain text by default); the
+JSON report also carries a ready-made issue title and Markdown body.
+
 The [Bot API spec](./.github/workflows/bot-api-spec.yml) workflow runs it
 weekly and opens an issue automatically when a new Bot API version is
 released.

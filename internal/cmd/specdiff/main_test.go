@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -129,5 +130,47 @@ func TestFormatText(t *testing.T) {
 	expected := "Telegram Bot API 10.4 (October 12, 2026)\n\nMissing (1):\n  - type NewType\n"
 	if text != expected {
 		t.Errorf("got:\n%q\nwant:\n%q", text, expected)
+	}
+}
+
+func TestFormatJSONLists(t *testing.T) {
+	s := &spec{Version: "Bot API 10.4"}
+	tests := []struct {
+		name    string
+		missing []string
+		extra   []string
+		verbose bool
+		want    map[string]string // raw JSON of "missing" and "extra"
+	}{
+		{"no -v", nil, []string{"field Old.Field"}, false, map[string]string{"missing": `[]`, "extra": `null`}},
+		{"-v without extras", nil, nil, true, map[string]string{"missing": `[]`, "extra": `[]`}},
+		{"-v with extras", []string{"type NewType"}, []string{"field Old.Field"}, true, map[string]string{"missing": `["type NewType"]`, "extra": `["field Old.Field"]`}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := formatJSON(s, tt.missing, tt.extra, tt.verbose)
+			if err != nil {
+				t.Fatalf("formatJSON failed: %v", err)
+			}
+			var out map[string]json.RawMessage
+			if err := json.Unmarshal(data, &out); err != nil {
+				t.Fatalf("failed to unmarshal JSON: %v", err)
+			}
+			for key, want := range tt.want {
+				raw, ok := out[key]
+				if !ok {
+					t.Errorf("%q is not in the output", key)
+					continue
+				}
+				var got bytes.Buffer
+				if err := json.Compact(&got, raw); err != nil {
+					t.Fatalf("compacting %q: %v", key, err)
+				}
+				if got.String() != want {
+					t.Errorf("%s = %s, want %s", key, got.String(), want)
+				}
+			}
+		})
 	}
 }
