@@ -80,6 +80,12 @@ func TestAddAny(t *testing.T) {
 	params.AddAny("test", nil)
 	assertLen(t, params, 1)
 	assertEq(t, params["test"], "")
+	var nilPointer *string
+	if err := params.AddAny("pointer", nilPointer); err != nil {
+		t.Fatal(err)
+	}
+	assertLen(t, params, 1)
+	assertEq(t, params["pointer"], "")
 }
 
 func TestAddFirstValid(t *testing.T) {
