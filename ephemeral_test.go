@@ -134,9 +134,9 @@ func TestInputRichMessageBlocks(t *testing.T) {
 	}
 }
 
-// TestEphemeralSendParams verifies that the ephemeral parameters are only
+// TestEphemeralMessageParameters verifies that the ephemeral parameters are only
 // emitted when set, and that they reach the wire for a send config.
-func TestEphemeralSendParams(t *testing.T) {
+func TestEphemeralMessageParameters(t *testing.T) {
 	plain := NewMessage(12345, "hello")
 	params, err := plain.params()
 	if err != nil {

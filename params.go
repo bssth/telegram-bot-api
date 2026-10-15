@@ -44,8 +44,9 @@ func (p Params) AddNonZeroFloat(key string, value float64) {
 	}
 }
 
-// AddInterface adds an interface if it is not nil and can be JSON marshalled.
-func (p Params) AddInterface(key string, value interface{}) error {
+// AddAny adds a value of any type by JSON-marshalling it. Nil values and nil
+// pointers are skipped.
+func (p Params) AddAny(key string, value any) error {
 	if value == nil || (reflect.ValueOf(value).Kind() == reflect.Ptr && reflect.ValueOf(value).IsNil()) {
 		return nil
 	}
@@ -58,11 +59,6 @@ func (p Params) AddInterface(key string, value interface{}) error {
 	p[key] = string(b)
 
 	return nil
-}
-
-// AddAny adds a value of any type by JSON-marshalling it.
-func (p Params) AddAny(key string, value any) error {
-	return p.AddInterface(key, value)
 }
 
 // AddFirstValid attempts to add the first item that is not a default value.
