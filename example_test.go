@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	tgbotapi "github.com/bssth/telegram-bot-api/v6"
+	tgbotapi "github.com/bssth/telegram-bot-api/v7"
 )
 
 // ExampleNewBotAPI demonstrates creating a bot and receiving updates

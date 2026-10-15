@@ -13,7 +13,7 @@ import (
 	"log"
 	"os"
 
-	tgbotapi "github.com/bssth/telegram-bot-api/v6"
+	tgbotapi "github.com/bssth/telegram-bot-api/v7"
 )
 
 func main() {
