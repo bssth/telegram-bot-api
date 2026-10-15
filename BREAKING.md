@@ -1,9 +1,12 @@
 # Breaking Changes
 
-This file lists every source-incompatible change between upstream
-`github.com/go-telegram-bot-api/telegram-bot-api/v5` v5.5.1 (Bot API 6.0)
-and this fork (Bot API 10.3). Upgrades are grouped by topic so you can jump
-straight to the area your code touches.
+This file lists every source-incompatible change in this library. Upgrades
+are grouped by major version: [v6 → v7](#upgrading-from-v6-to-v7) first,
+then [v5 → v6](#upgrading-from-v5-to-v6), which covers the move from
+upstream `github.com/go-telegram-bot-api/telegram-bot-api/v5` v5.5.1
+(Bot API 6.0) to this fork. Coming from upstream, apply both. Within each
+version, changes are grouped by topic so you can jump straight to the area
+your code touches.
 
 Each section lists **what to rename** or **what to replace** — the fastest
 way to migrate is `grep` for the old identifier in your code and apply the
@@ -12,7 +15,49 @@ Bot API itself changed.
 
 ---
 
-## Module path
+## Upgrading from v6 to v7
+
+### Module path
+
+```go
+// Before
+import tgbotapi "github.com/bssth/telegram-bot-api/v6"
+
+// After
+import tgbotapi "github.com/bssth/telegram-bot-api/v7"
+```
+
+### Removed deprecated leftovers
+
+- **`BotAPI.GetChatMembersCount`**: use `bot.GetChatMemberCount(cfg)` instead.
+- **`BanChatSenderChatConfig.UntilDate`**: removed because `banChatSenderChat` no longer accepts `until_date` in the Bot API.
+- **`InlineQueryResultPhoto.MimeType`** and **`InlineQueryResultCachedSticker.Title`**: removed because neither is part of the Bot API. `NewInlineQueryResultCachedSticker(id, stickerID)` no longer takes a `title` argument.
+- **`EphemeralSendParams`**: type alias removed; use `EphemeralMessageParameters`.
+  The field embedded in every send config that supports ephemeral messages
+  (`MessageConfig`, `PhotoConfig`, `AudioConfig`, `DocumentConfig`,
+  `StickerConfig`, `VideoConfig`, `LivePhotoConfig`, `AnimationConfig`,
+  `VideoNoteConfig`, `VoiceConfig`, `LocationConfig`, `VenueConfig`,
+  `ContactConfig`, `SendRichMessageConfig`) is renamed with it, so code that
+  names the embedded field must change too:
+
+  ```go
+  // Before
+  msg := tgbotapi.MessageConfig{EphemeralSendParams: tgbotapi.EphemeralSendParams{ReceiverUserID: userID}}
+  msg.EphemeralSendParams.CallbackQueryID = queryID
+
+  // After
+  msg := tgbotapi.MessageConfig{EphemeralMessageParameters: tgbotapi.EphemeralMessageParameters{ReceiverUserID: userID}}
+  msg.EphemeralMessageParameters.CallbackQueryID = queryID
+  ```
+
+  Promoted field access such as `msg.ReceiverUserID` is unaffected.
+- **`Params.AddInterface`**: removed; use `Params.AddAny`.
+
+---
+
+## Upgrading from v5 to v6
+
+### Module path
 
 ```go
 // Before
@@ -25,16 +70,17 @@ import tgbotapi "github.com/bssth/telegram-bot-api/v6"
 Both the owner and the major version change: the fork is published as `/v6`
 because it is not source-compatible with upstream v5. The package name is
 still `tgbotapi`. See the README for a one-line `sed` command that rewrites
-the imports.
+the imports. If you are moving straight from upstream to v7, import `/v7`
+instead and apply the [v6 → v7](#upgrading-from-v6-to-v7) changes as well.
 
 ---
 
-## `thumb` → `thumbnail` (Bot API 6.6)
+### `thumb` → `thumbnail` (Bot API 6.6)
 
 The single largest mechanical rename. Applies everywhere media has a
 thumbnail.
 
-### Config fields
+#### Config fields
 ```go
 PhotoConfig.Thumb           → PhotoConfig.Thumbnail
 AudioConfig.Thumb           → AudioConfig.Thumbnail
@@ -45,7 +91,7 @@ VideoNoteConfig.Thumb       → VideoNoteConfig.Thumbnail
 VoiceConfig.Thumb           → VoiceConfig.Thumbnail
 ```
 
-### `InputMedia*` types
+#### `InputMedia*` types
 ```go
 InputMediaVideo.Thumb       → InputMediaVideo.Thumbnail
 InputMediaAnimation.Thumb   → InputMediaAnimation.Thumbnail
@@ -53,7 +99,7 @@ InputMediaAudio.Thumb       → InputMediaAudio.Thumbnail
 InputMediaDocument.Thumb    → InputMediaDocument.Thumbnail
 ```
 
-### Inline query result types
+#### Inline query result types
 ```go
 InlineQueryResult*.ThumbURL    → .ThumbnailURL
 InlineQueryResult*.ThumbWidth  → .ThumbnailWidth
@@ -62,12 +108,12 @@ InlineQueryResult*.ThumbHeight → .ThumbnailHeight
 (Applies to Article, Contact, Document, Location, Venue, Photo, Video,
 GIF, MPEG4GIF.)
 
-### Helper functions
+#### Helper functions
 ```go
 NewInlineQueryResultPhotoWithThumb → NewInlineQueryResultPhotoWithThumbnail
 ```
 
-### Config types
+#### Config types
 ```go
 SetStickerSetThumbConfig → SetStickerSetThumbnailConfig
 SetStickerSetThumbConfig.Thumb → SetStickerSetThumbnailConfig.Thumbnail
@@ -75,20 +121,20 @@ SetStickerSetThumbConfig.Thumb → SetStickerSetThumbnailConfig.Thumbnail
 
 ---
 
-## `reply_to_message_id` → `ReplyParameters` (Bot API 7.0)
+### `reply_to_message_id` → `ReplyParameters` (Bot API 7.0)
 
 `ReplyToMessageID` and `AllowSendingWithoutReply` were removed from
 `BaseChat` and `MediaGroupConfig`. Replies now go through a structured
 `ReplyParameters` value that also supports cross-chat replies and quoting.
 
-### Before
+#### Before
 ```go
 msg := tgbotapi.NewMessage(chatID, "hi")
 msg.ReplyToMessageID = origMsgID
 msg.AllowSendingWithoutReply = true
 ```
 
-### After
+#### After
 ```go
 msg := tgbotapi.NewMessage(chatID, "hi")
 msg.ReplyParameters = &tgbotapi.ReplyParameters{
@@ -99,26 +145,26 @@ msg.ReplyParameters = &tgbotapi.ReplyParameters{
 
 ---
 
-## `DisableWebPagePreview` → `LinkPreviewOptions` (Bot API 7.0)
+### `DisableWebPagePreview` → `LinkPreviewOptions` (Bot API 7.0)
 
-### Send / edit configs
+#### Send / edit configs
 ```go
 MessageConfig.DisableWebPagePreview     → LinkPreviewOptions
 EditMessageTextConfig.DisableWebPagePreview → LinkPreviewOptions
 ```
 
-### Inline content
+#### Inline content
 ```go
 InputTextMessageContent.DisableWebPagePreview → LinkPreviewOptions
 ```
 
-### Before
+#### Before
 ```go
 msg := tgbotapi.NewMessage(chatID, "see https://example.com")
 msg.DisableWebPagePreview = true
 ```
 
-### After
+#### After
 ```go
 msg := tgbotapi.NewMessage(chatID, "see https://example.com")
 msg.LinkPreviewOptions = &tgbotapi.LinkPreviewOptions{IsDisabled: true}
@@ -126,7 +172,7 @@ msg.LinkPreviewOptions = &tgbotapi.LinkPreviewOptions{IsDisabled: true}
 
 ---
 
-## `forward_from` fields → `ForwardOrigin` (Bot API 7.0)
+### `forward_from` fields → `ForwardOrigin` (Bot API 7.0)
 
 Removed from `Message`:
 - `ForwardFrom *User`
@@ -140,14 +186,14 @@ Added: `ForwardOrigin *MessageOrigin` — a flat polymorphic struct with a
 `Type` discriminator ("user", "hidden_user", "chat", "channel") and all
 variant fields as optional.
 
-### Before
+#### Before
 ```go
 if msg.ForwardFrom != nil {
     fmt.Println("forwarded from user", msg.ForwardFrom.UserName)
 }
 ```
 
-### After
+#### After
 ```go
 if msg.ForwardOrigin != nil && msg.ForwardOrigin.Type == tgbotapi.MessageOriginTypeUser {
     fmt.Println("forwarded from user", msg.ForwardOrigin.SenderUser.UserName)
@@ -156,13 +202,13 @@ if msg.ForwardOrigin != nil && msg.ForwardOrigin.Type == tgbotapi.MessageOriginT
 
 ---
 
-## Sticker API rewrite (Bot API 6.6)
+### Sticker API rewrite (Bot API 6.6)
 
 `createNewStickerSet`, `uploadStickerFile`, and `addStickerToSet` all
 changed shape. The old per-format parameters (`png_sticker`, `tgs_sticker`,
 `webm_sticker`) were replaced with the new `InputSticker` type.
 
-### `UploadStickerConfig`
+#### `UploadStickerConfig`
 ```go
 // Before
 cfg := tgbotapi.UploadStickerConfig{
@@ -178,7 +224,7 @@ cfg := tgbotapi.UploadStickerConfig{
 }
 ```
 
-### `NewStickerSetConfig`
+#### `NewStickerSetConfig`
 ```go
 // Before
 cfg := tgbotapi.NewStickerSetConfig{
@@ -204,7 +250,7 @@ cfg := tgbotapi.NewStickerSetConfig{
 Dropped fields: `PNGSticker`, `TGSSticker`, `Emojis`, `MaskPosition`,
 `StickerFormat` (moved per-sticker in 7.2), `ContainsMasks` (deprecated 6.2).
 
-### `AddStickerConfig`
+#### `AddStickerConfig`
 ```go
 // Before
 cfg := tgbotapi.AddStickerConfig{
@@ -226,7 +272,7 @@ cfg := tgbotapi.AddStickerConfig{
 }
 ```
 
-### Removed fields
+#### Removed fields
 ```go
 StickerSet.IsAnimated      // (removed 7.2; mixed-format packs)
 StickerSet.IsVideo         // (removed 7.2)
@@ -235,7 +281,7 @@ StickerSet.ContainsMasks   // (removed 6.2; use StickerType instead)
 
 ---
 
-## Chat permissions: granular media (Bot API 6.5)
+### Chat permissions: granular media (Bot API 6.5)
 
 `CanSendMediaMessages` was replaced with six per-type fields on both
 `ChatPermissions` and `ChatMember`:
@@ -252,9 +298,9 @@ CanSendMediaMessages →
 
 ---
 
-## `UserShared` → `UsersShared` (Bot API 7.0, 7.2)
+### `UserShared` → `UsersShared` (Bot API 7.0, 7.2)
 
-### 7.0 — rename + slice of IDs
+#### 7.0 — rename + slice of IDs
 ```go
 KeyboardButtonRequestUser  → KeyboardButtonRequestUsers
 UserShared (type)          → UsersShared
@@ -263,7 +309,7 @@ Message.UserShared         → Message.UsersShared
 UsersShared.UserID (int64) → UsersShared.UserIDs ([]int64)
 ```
 
-### 7.2 — slice of user IDs becomes slice of `SharedUser`
+#### 7.2 — slice of user IDs becomes slice of `SharedUser`
 ```go
 UsersShared.UserIDs ([]int64) → UsersShared.Users ([]SharedUser)
 ```
@@ -273,21 +319,21 @@ when the bot requested it via `KeyboardButtonRequestUsers`.
 
 ---
 
-## `BusinessConnection.CanReply` → `Rights` (Bot API 9.0)
+### `BusinessConnection.CanReply` → `Rights` (Bot API 9.0)
 
 `BusinessConnection.CanReply bool` was replaced with
 `BusinessConnection.Rights *BusinessBotRights`, which carries ~14
 granular permissions (including a new `CanReply` field inside the
 sub-struct).
 
-### Before
+#### Before
 ```go
 if bc.CanReply {
     ...
 }
 ```
 
-### After
+#### After
 ```go
 if bc.Rights != nil && bc.Rights.CanReply {
     ...
@@ -296,7 +342,7 @@ if bc.Rights != nil && bc.Rights.CanReply {
 
 ---
 
-## `ChatFullInfo.CanSendGift` → `AcceptedGiftTypes` (Bot API 9.0)
+### `ChatFullInfo.CanSendGift` → `AcceptedGiftTypes` (Bot API 9.0)
 
 The single-bool `can_send_gift` was replaced with a struct describing which
 specific kinds of gifts a chat accepts:
@@ -310,7 +356,7 @@ ChatFullInfo.CanSendGift (bool) → ChatFullInfo.AcceptedGiftTypes (AcceptedGift
 
 ---
 
-## `Poll.CorrectOptionID` → `CorrectOptionIDs` (Bot API 9.6)
+### `Poll.CorrectOptionID` → `CorrectOptionIDs` (Bot API 9.6)
 
 Multi-answer quizzes meant the singular field had to become a slice:
 
@@ -324,7 +370,7 @@ of the rewrite.
 
 ---
 
-## `SendPollConfig.Options` type change (Bot API 7.3)
+### `SendPollConfig.Options` type change (Bot API 7.3)
 
 ```go
 SendPollConfig.Options ([]string) → SendPollConfig.Options ([]InputPollOption)
@@ -334,12 +380,12 @@ The `NewPoll` helper still takes `options ...string` and wraps them
 internally, so callers that use the helper don't need to change.
 Direct struct literal callers do:
 
-### Before
+#### Before
 ```go
 SendPollConfig{Options: []string{"yes", "no"}}
 ```
 
-### After
+#### After
 ```go
 SendPollConfig{Options: []tgbotapi.InputPollOption{
     {Text: "yes"},
@@ -349,7 +395,7 @@ SendPollConfig{Options: []tgbotapi.InputPollOption{
 
 ---
 
-## `UniqueGiftInfo.LastResaleStarCount` → currency+amount (Bot API 9.3)
+### `UniqueGiftInfo.LastResaleStarCount` → currency+amount (Bot API 9.3)
 
 The Stars-only resale field was generalized when TON payments arrived:
 
@@ -361,7 +407,7 @@ UniqueGiftInfo.LastResaleStarCount (int) →
 
 ---
 
-## `GetBusinessAccountGiftsConfig.ExcludeLimited` split (Bot API 9.3)
+### `GetBusinessAccountGiftsConfig.ExcludeLimited` split (Bot API 9.3)
 
 ```go
 ExcludeLimited (bool) →
@@ -373,7 +419,7 @@ Plus `ExcludeFromBlockchain (bool)` was added in the same version.
 
 ---
 
-## `switch_pm_*` → `InlineQueryResultsButton` (Bot API 6.7)
+### `switch_pm_*` → `InlineQueryResultsButton` (Bot API 6.7)
 
 ```go
 InlineConfig.SwitchPMText      → InlineConfig.Button.Text
@@ -395,7 +441,7 @@ cfg := tgbotapi.InlineConfig{
 
 ---
 
-## Removed fields (no direct replacement)
+### Removed fields (no direct replacement)
 
 - **`InlineQueryResultArticle.HideURL`** (Bot API 8.2) — pass an empty
   string as the `URL` instead.
@@ -405,7 +451,7 @@ cfg := tgbotapi.InlineConfig{
 
 ---
 
-## `InvoiceConfig.ProviderData` type change (Bot API 6.1 era)
+### `InvoiceConfig.ProviderData` type change (Bot API 6.1 era)
 
 ```go
 InvoiceConfig.ProviderData     (string) → json.RawMessage
@@ -416,7 +462,7 @@ If you had a pre-marshalled JSON string, wrap it with `json.RawMessage(s)`.
 
 ---
 
-## Method return type change: `GetChat` (Bot API 7.3)
+### Method return type change: `GetChat` (Bot API 7.3)
 
 ```go
 bot.GetChat(cfg) (Chat, error) → (ChatFullInfo, error)
@@ -438,7 +484,7 @@ c, err = bot.GetChat(cfg)
 
 ---
 
-## `getChat`-only fields moved from `Chat` to `ChatFullInfo` (Bot API 7.3)
+### `getChat`-only fields moved from `Chat` to `ChatFullInfo` (Bot API 7.3)
 
 Since Bot API 7.3 Telegram returns these fields only from `getChat`, as part
 of `ChatFullInfo`; the `Chat` objects inside messages and other updates never
@@ -472,7 +518,7 @@ info.Description
 
 ---
 
-## `Message.PremiumAnimation` removed
+### `Message.PremiumAnimation` removed
 
 `premium_animation` is a field of `Sticker`, not `Message`, so
 `Message.PremiumAnimation` was never populated. Use
@@ -480,7 +526,7 @@ info.Description
 
 ---
 
-## Types that gained fields (soft-breaking)
+### Types that gained fields (soft-breaking)
 
 A few types changed from empty structs to carrying fields. Anyone who used
 them via pointer (`*Story`) is unaffected; callers who constructed them by
@@ -493,7 +539,7 @@ value may need to initialize new fields.
 
 ---
 
-## Internal helper `AddFirstValid` error propagation
+### Internal helper `AddFirstValid` error propagation
 
 Not API-breaking for callers of the public surface, but if you wrote
 custom `Chattable` implementations and copied the old pattern of
@@ -505,8 +551,27 @@ custom configs should do the same.
 
 ## Checklist for upgrading
 
-1. Change the import path (see "Module path"), then do a global
-   find-replace for the `Thumb` → `Thumbnail` renames.
+Coming from upstream v5, work through both lists.
+
+### From v6 to v7
+
+1. Change the import path to `github.com/bssth/telegram-bot-api/v7`
+   (see "Upgrading from v6 to v7 → Module path").
+2. Rename `GetChatMembersCount` calls to `GetChatMemberCount`.
+3. Drop the `title` argument from `NewInlineQueryResultCachedSticker`
+   calls: it is now `NewInlineQueryResultCachedSticker(id, stickerID)`.
+4. Replace `EphemeralSendParams` with `EphemeralMessageParameters`, both as
+   a type and as the embedded field name on send configs
+   (`MessageConfig{EphemeralSendParams: …}`, `cfg.EphemeralSendParams.X`).
+5. Replace `Params.AddInterface` with `Params.AddAny` in custom configs.
+6. Remove any use of `BanChatSenderChatConfig.UntilDate`,
+   `InlineQueryResultPhoto.MimeType` and
+   `InlineQueryResultCachedSticker.Title`; Telegram ignored them.
+
+### From v5 to v6
+
+1. Change the import path (see "Upgrading from v5 to v6 → Module path"),
+   then do a global find-replace for the `Thumb` → `Thumbnail` renames.
 2. Search for `ReplyToMessageID` and migrate each to `ReplyParameters`.
 3. Search for `DisableWebPagePreview` and migrate to `LinkPreviewOptions`.
 4. Search for `ForwardFrom` / `ForwardDate` and switch to `ForwardOrigin`.

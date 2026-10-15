@@ -105,6 +105,16 @@ func TestNewInlineQueryResultPhotoWithThumbnail(t *testing.T) {
 	}
 }
 
+func TestNewInlineQueryResultCachedSticker(t *testing.T) {
+	result := NewInlineQueryResultCachedSticker("id", "sticker")
+
+	if result.Type != "sticker" ||
+		result.ID != "id" ||
+		result.StickerID != "sticker" {
+		t.Fail()
+	}
+}
+
 func TestNewInlineQueryResultVideo(t *testing.T) {
 	result := NewInlineQueryResultVideo("id", "google.com")
 
@@ -179,21 +189,21 @@ func TestNewInlineKeyboardButtonLoginURL(t *testing.T) {
 }
 
 func TestNewEditMessageText(t *testing.T) {
-	edit := NewEditMessageText(ChatID, ReplyToMessageID, "new text")
+	edit := NewEditMessageText(42, 123, "new text")
 
 	if edit.Text != "new text" ||
-		edit.BaseEdit.ChatID != ChatID ||
-		edit.BaseEdit.MessageID != ReplyToMessageID {
+		edit.BaseEdit.ChatID != 42 ||
+		edit.BaseEdit.MessageID != 123 {
 		t.Fail()
 	}
 }
 
 func TestNewEditMessageCaption(t *testing.T) {
-	edit := NewEditMessageCaption(ChatID, ReplyToMessageID, "new caption")
+	edit := NewEditMessageCaption(42, 123, "new caption")
 
 	if edit.Caption != "new caption" ||
-		edit.BaseEdit.ChatID != ChatID ||
-		edit.BaseEdit.MessageID != ReplyToMessageID {
+		edit.BaseEdit.ChatID != 42 ||
+		edit.BaseEdit.MessageID != 123 {
 		t.Fail()
 	}
 }
@@ -207,11 +217,11 @@ func TestNewEditMessageReplyMarkup(t *testing.T) {
 		},
 	}
 
-	edit := NewEditMessageReplyMarkup(ChatID, ReplyToMessageID, markup)
+	edit := NewEditMessageReplyMarkup(42, 123, markup)
 
 	if edit.ReplyMarkup.InlineKeyboard[0][0].Text != "test" ||
-		edit.BaseEdit.ChatID != ChatID ||
-		edit.BaseEdit.MessageID != ReplyToMessageID {
+		edit.BaseEdit.ChatID != 42 ||
+		edit.BaseEdit.MessageID != 123 {
 		t.Fail()
 	}
 

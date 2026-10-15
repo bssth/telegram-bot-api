@@ -1,6 +1,6 @@
 # Golang bindings for the Telegram Bot API
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/bssth/telegram-bot-api/v6.svg)](https://pkg.go.dev/github.com/bssth/telegram-bot-api/v6)
+[![Go Reference](https://pkg.go.dev/badge/github.com/bssth/telegram-bot-api/v7.svg)](https://pkg.go.dev/github.com/bssth/telegram-bot-api/v7)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg)](https://bssth.github.io/telegram-bot-api/)
 [![Test](https://github.com/bssth/telegram-bot-api/actions/workflows/test.yml/badge.svg)](https://github.com/bssth/telegram-bot-api/actions/workflows/test.yml)
 [![Bot API](https://img.shields.io/badge/Bot%20API-10.3-blue.svg)](https://core.telegram.org/bots/api-changelog)
@@ -12,7 +12,7 @@
 > follows the [official changelog](https://core.telegram.org/bots/api-changelog).
 
 All methods are fairly self-explanatory, and reading the
-[godoc](https://pkg.go.dev/github.com/bssth/telegram-bot-api/v6) page should
+[godoc](https://pkg.go.dev/github.com/bssth/telegram-bot-api/v7) page should
 explain everything. If something isn't clear, open an
 [issue](https://github.com/bssth/telegram-bot-api/issues) or submit a pull
 request.
@@ -28,18 +28,23 @@ More tutorials and high-level information live in the
 ## Installing
 
 ```sh
-go get github.com/bssth/telegram-bot-api/v6@latest
+go get github.com/bssth/telegram-bot-api/v7@latest
 ```
 
 ```go
-import tgbotapi "github.com/bssth/telegram-bot-api/v6"
+import tgbotapi "github.com/bssth/telegram-bot-api/v7"
 ```
 
 Go 1.24 or newer is required.
 
-The major version is **v6**: the API is not source-compatible with upstream
-v5 (see below), so the fork starts a new major version instead of breaking
-code that pins `/v5`.
+> **v7 is not released yet** (see the [changelog](./docs/changelog.md)).
+> Until `v7.0.0` is tagged, `go get` resolves `/v7` to a pseudo-version of
+> the latest `master` commit.
+
+The major version is **v7** because of the source-incompatible v6 → v7
+changes listed in [BREAKING.md](./BREAKING.md). v6 was the fork's first major
+version, started because the API is not source-compatible with upstream v5
+(see below).
 
 ## Migrating from `go-telegram-bot-api/telegram-bot-api`
 
@@ -48,8 +53,8 @@ code that pins `/v5`.
 
    ```sh
    grep -rl 'github.com/go-telegram-bot-api/telegram-bot-api/v5' --include='*.go' . \
-     | xargs sed -i 's#github.com/go-telegram-bot-api/telegram-bot-api/v5#github.com/bssth/telegram-bot-api/v6#g'
-   go get github.com/bssth/telegram-bot-api/v6@latest
+     | xargs sed -i 's#github.com/go-telegram-bot-api/telegram-bot-api/v5#github.com/bssth/telegram-bot-api/v7#g'
+   go get github.com/bssth/telegram-bot-api/v7@latest
    go mod tidy
    ```
 
@@ -58,9 +63,10 @@ code that pins `/v5`.
    as the one it replaces.
 
 2. Fix whatever no longer compiles using [**BREAKING.md**](./BREAKING.md). It
-   lists every source-incompatible change between upstream v5.5.1 (Bot API
-   6.0) and this fork, grouped by topic, with before/after snippets. Most of
-   them come from Telegram itself: `Thumb` became `Thumbnail`,
+   lists every source-incompatible change grouped by major version (v6 → v7,
+   then v5 → v6), each with topic sections and before/after snippets. Coming
+   from upstream v5.5.1 (Bot API 6.0), apply both. Most of the v5 → v6
+   changes come from Telegram itself: `Thumb` became `Thumbnail`,
    `ReplyToMessageID` became `ReplyParameters`, `DisableWebPagePreview` became
    `LinkPreviewOptions`, and so on.
 
@@ -79,7 +85,7 @@ package main
 import (
 	"log"
 
-	tgbotapi "github.com/bssth/telegram-bot-api/v6"
+	tgbotapi "github.com/bssth/telegram-bot-api/v7"
 )
 
 func main() {
@@ -120,8 +126,9 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
-	tgbotapi "github.com/bssth/telegram-bot-api/v6"
+	tgbotapi "github.com/bssth/telegram-bot-api/v7"
 )
 
 func main() {
@@ -134,7 +141,12 @@ func main() {
 
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
-	wh, _ := tgbotapi.NewWebhookWithCert("https://www.example.com:8443/"+bot.Token, tgbotapi.FilePath("cert.pem"))
+	wh, _ := tgbotapi.NewWebhookWithCert("https://www.example.com:8443/", tgbotapi.FilePath("cert.pem"))
+	// Telegram echoes this secret in the X-Telegram-Bot-Api-Secret-Token header
+	// of every webhook request; requests without it are rejected with 401.
+	// Use a random string of 1-256 characters from A-Z, a-z, 0-9, _ and -.
+	wh.SecretToken = os.Getenv("TELEGRAM_WEBHOOK_SECRET")
+	bot.WebhookSecretToken = wh.SecretToken
 
 	_, err = bot.Request(wh)
 	if err != nil {
@@ -150,7 +162,7 @@ func main() {
 		log.Printf("Telegram callback failed: %s", info.LastErrorMessage)
 	}
 
-	updates := bot.ListenForWebhook("/" + bot.Token)
+	updates := bot.ListenForWebhook("/")
 	go http.ListenAndServeTLS("0.0.0.0:8443", "cert.pem", "key.pem", nil)
 
 	for update := range updates {
@@ -216,8 +228,12 @@ and lists every missing type, field, method and parameter:
 go run ./internal/cmd/specdiff       # add -v to also list non-spec extras
 ```
 
+`-format text|markdown|json` picks the output (plain text by default); the
+JSON report also carries a ready-made issue title and Markdown body.
+
 The [Bot API spec](./.github/workflows/bot-api-spec.yml) workflow runs it
-weekly, so a new Bot API release shows up as a failed run.
+weekly and opens an issue automatically when a new Bot API version is
+released.
 
 ### Credits
 
@@ -293,9 +309,10 @@ doing while the code was already open:
   short of EOF, and `net/http` will discard the underlying TCP connection if
   the body isn't fully consumed — no keep-alive reuse. The fork drains the
   remainder before `Close()`.
-- **`Params.AddAny(key, value any) error`.** Replaces the older
-  `AddInterface` — same behavior, but uses `any` and has a clearer name.
-  `AddInterface` is kept as an alias for existing callers.
+- **`Params.AddAny(key, value any) error`.** Replaces upstream's
+  `interface{}`-based helper — same behavior, but uses `any` and has a
+  clearer name. The old name was removed in v7 (see
+  [BREAKING.md](./BREAKING.md)).
 - **`Params.AddFirstValid` errors are propagated.** The upstream pattern
   ignored its return value inside `params()` methods, so JSON marshaling
   errors in complex fields were silently swallowed. The fork consistently
@@ -305,3 +322,30 @@ doing while the code was already open:
   on `InvoiceConfig` / `InvoiceLinkConfig`) are now `json.RawMessage`
   instead of `string`, so you can hand them an already-marshaled payload
   without double-encoding.
+
+## Integration tests
+
+`go test ./...` runs the offline unit tests; the tests in `bot_test.go` that
+talk to a real bot are skipped unless the variables below are set (each test
+skips when a variable it needs is missing):
+
+| Variable | Purpose |
+| --- | --- |
+| `TELEGRAM_BOT_TOKEN` | Token of a dedicated test bot. Without it every integration test is skipped. |
+| `TELEGRAM_TEST_CHAT_ID` | ID of a private chat with a user who has started the bot. `TestGetUserProfilePhotos` also uses it as a user ID. |
+| `TELEGRAM_TEST_CHANNEL` | Channel `@username`; the bot must be an admin with permission to post. |
+| `TELEGRAM_TEST_SUPERGROUP_ID` | Supergroup ID (`-100…`); the bot must be an admin allowed to pin messages. |
+| `TELEGRAM_API_ENDPOINT` | Optional. Bot API endpoint format string (default `https://api.telegram.org/bot%s/%s`), e.g. for a local Bot API server. |
+| `TELEGRAM_TEST_<KIND>_FILE_ID` | Optional. Existing file ID for `PHOTO`, `DOCUMENT`, `AUDIO`, `VOICE`, `VIDEO`, `VIDEONOTE` or `STICKER`; otherwise the file is uploaded once per run. |
+| `TELEGRAM_TEST_DEBUG` | Optional. Any non-empty value enables `bot.Debug`, which logs full API requests and responses. |
+
+```sh
+TELEGRAM_BOT_TOKEN=... TELEGRAM_TEST_CHAT_ID=... go test -v -count=1 ./...
+```
+
+The tests send real messages, set and delete a webhook, and change the bot's
+commands, so use a bot that does nothing else. In CI, the `Integration Tests`
+job of the [Test](./.github/workflows/test.yml) workflow reads the first four
+variables from repository secrets of the same names. It runs on pushes to
+`master`, nightly and on manual dispatch (never on pull requests), and is
+skipped with a notice when `TELEGRAM_BOT_TOKEN` is not configured.

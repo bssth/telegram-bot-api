@@ -172,3 +172,30 @@ func TestGetFileDirectURLUsesFileEndpoint(t *testing.T) {
 		t.Fatalf("GetFileDirectURL() = %q", link)
 	}
 }
+
+func TestGetChatMemberCount(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getMe"):
+			io.WriteString(w, `{"ok":true,"result":{"id":1,"is_bot":true,"first_name":"Bot"}}`)
+		case strings.HasSuffix(r.URL.Path, "/getChatMemberCount"):
+			io.WriteString(w, `{"ok":true,"result":42}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	bot, err := NewBotAPIWithAPIEndpoint("TOKEN", srv.URL+"/bot%s/%s")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := bot.GetChatMemberCount(ChatMemberCountConfig{ChatConfig: ChatConfig{ChatID: 12345}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 42 {
+		t.Fatalf("GetChatMemberCount() = %d, want 42", count)
+	}
+}
