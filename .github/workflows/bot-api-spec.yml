@@ -1,12 +1,26 @@
 name: Bot API spec
 
 # Compares the library with the latest published Telegram Bot API
-# specification, so that new Bot API releases are noticed quickly.
+# specification and opens or updates an issue when gaps are found.
 
 on:
   schedule:
     - cron: '17 6 * * 1'
   workflow_dispatch:
+    inputs:
+      spec:
+        description: 'URL or path of the Bot API api.json'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: bot-api-spec
+  cancel-in-progress: false
 
 jobs:
   specdiff:
@@ -19,5 +33,54 @@ jobs:
         with:
           go-version: '1.24'
 
-      - name: Report missing types, fields, methods and parameters
-        run: go run ./internal/cmd/specdiff -strict
+      - name: Compare with the Bot API specification
+        id: specdiff
+        env:
+          SPEC_URL: ${{ inputs.spec }}
+        run: |
+          SPEC_FLAGS=()
+          if [ -n "$SPEC_URL" ]; then
+            SPEC_FLAGS=(-spec "$SPEC_URL")
+          fi
+
+          go run ./internal/cmd/specdiff "${SPEC_FLAGS[@]}" -format json > report.json
+          jq -r '.markdown' report.json > report.md
+          cat report.md
+
+          if [ -n "$GITHUB_STEP_SUMMARY" ]; then
+            cat report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          MISSING_COUNT=$(jq '.missing | length' report.json)
+          echo "missing=$MISSING_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the Bot API update issue
+        if: steps.specdiff.outputs.missing != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TITLE=$(jq -r '.title' report.json)
+          LABEL="bot-api-update"
+
+          # Fails harmlessly when the label exists; maintainers' edits are kept.
+          gh label create "$LABEL" --description "Updates for new Telegram Bot API versions" --color "1d76db" || true
+
+          # Only reuse issues opened by this workflow, looked up through the
+          # REST API rather than the search index, which can lag behind.
+          ISSUE_NUMBER=$(gh api "repos/$GH_REPO/issues?state=open&labels=$LABEL&per_page=100" \
+            --jq '[.[] | select(.pull_request | not) | select(.user.login == "github-actions[bot]")][0].number // empty')
+
+          if [ -n "$ISSUE_NUMBER" ]; then
+            OLD_TITLE=$(gh issue view "$ISSUE_NUMBER" --json title --jq .title)
+            echo "Updating existing issue #$ISSUE_NUMBER: $TITLE"
+            gh issue edit "$ISSUE_NUMBER" --title "$TITLE" --body-file report.md
+            if [ "$OLD_TITLE" != "$TITLE" ]; then
+              # Editing an issue does not notify watchers, a comment does.
+              RELEASE=${TITLE#Support }
+              gh issue comment "$ISSUE_NUMBER" --body "${RELEASE^} is out; the report above has been updated."
+            fi
+          else
+            echo "Creating new issue: $TITLE"
+            gh issue create --title "$TITLE" --body-file report.md --label "$LABEL"
+          fi

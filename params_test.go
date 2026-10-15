@@ -67,19 +67,25 @@ func TestAddNonZeroFloat(t *testing.T) {
 	assertEq(t, params["test"], "")
 }
 
-func TestAddInterface(t *testing.T) {
+func TestAddAny(t *testing.T) {
 	params := make(Params)
 	data := struct {
 		Name string `json:"name"`
 	}{
 		Name: "test",
 	}
-	params.AddInterface("value", data)
+	params.AddAny("value", data)
 	assertLen(t, params, 1)
 	assertEq(t, params["value"], `{"name":"test"}`)
-	params.AddInterface("test", nil)
+	params.AddAny("test", nil)
 	assertLen(t, params, 1)
 	assertEq(t, params["test"], "")
+	var nilPointer *string
+	if err := params.AddAny("pointer", nilPointer); err != nil {
+		t.Fatal(err)
+	}
+	assertLen(t, params, 1)
+	assertEq(t, params["pointer"], "")
 }
 
 func TestAddFirstValid(t *testing.T) {

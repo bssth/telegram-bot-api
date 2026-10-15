@@ -6179,12 +6179,6 @@ type InlineQueryResultCachedSticker struct {
 	ID string `json:"id"`
 	// StickerID a valid file identifier of the sticker
 	StickerID string `json:"sticker_file_id"`
-	// Title is not a part of the Bot API for cached sticker results and is
-	// ignored by Telegram.
-	//
-	// Deprecated: Telegram does not support this field. It is kept only for
-	// source compatibility and will be removed in a future release.
-	Title string `json:"title,omitempty"`
 	// ReplyMarkup inline keyboard attached to the message
 	//
 	// optional
@@ -6623,12 +6617,6 @@ type InlineQueryResultPhoto struct {
 	// URL a valid URL of the photo. Photo must be in jpeg format.
 	// Photo size must not exceed 5MB.
 	URL string `json:"photo_url"`
-	// MimeType is not a part of the Bot API for photo results and is ignored
-	// by Telegram.
-	//
-	// Deprecated: Telegram does not support this field. It is kept only for
-	// source compatibility and will be removed in a future release.
-	MimeType string `json:"mime_type,omitempty"`
 	// Width of the photo
 	//
 	// optional
