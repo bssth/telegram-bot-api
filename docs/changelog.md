@@ -7,7 +7,12 @@
   - `BotAPI.GetChatMembersCount`: use `GetChatMemberCount`.
   - `BanChatSenderChatConfig.UntilDate`: no longer part of `banChatSenderChat`.
   - `InlineQueryResultPhoto.MimeType` and `InlineQueryResultCachedSticker.Title`: not part of the Bot API; `NewInlineQueryResultCachedSticker` no longer accepts `title`.
-  - The `EphemeralSendParams` alias: use `EphemeralMessageParameters`.
+  - The `EphemeralSendParams` alias: use `EphemeralMessageParameters`. The
+    field embedded in send configs is renamed with it:
+    `MessageConfig{EphemeralSendParams: …}` becomes
+    `MessageConfig{EphemeralMessageParameters: …}` and
+    `cfg.EphemeralSendParams.X` becomes `cfg.EphemeralMessageParameters.X`;
+    promoted access such as `cfg.ReceiverUserID` is unchanged.
   - `Params.AddInterface`: use `AddAny`.
 
 ## v6.0.0
