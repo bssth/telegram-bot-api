@@ -121,7 +121,7 @@ func ExampleNewMediaGroup() {
 		photo2,
 	})
 
-	if _, err := bot.Send(mediaGroup); err != nil {
+	if _, err := bot.SendMediaGroup(mediaGroup); err != nil {
 		log.Panic(err)
 	}
 }
@@ -142,8 +142,8 @@ func ExampleNewPoll() {
 	}
 }
 
-// ExampleNewRichMessage demonstrates sending a rich message formatted
-// with blocks or markdown.
+// ExampleNewRichMessage demonstrates sending a rich message built from
+// structured layout blocks.
 func ExampleNewRichMessage() {
 	bot, err := tgbotapi.NewBotAPI("MyAwesomeBotToken")
 	if err != nil {
@@ -154,6 +154,7 @@ func ExampleNewRichMessage() {
 		Blocks: []tgbotapi.InputRichBlock{
 			{
 				Type: tgbotapi.RichBlockTypeHeading,
+				Size: 1,
 				Text: &tgbotapi.RichText{IsPlain: true, PlainText: "Release Notes"},
 			},
 			{
@@ -196,6 +197,8 @@ func ExampleLinkPreviewOptions() {
 
 	msg := tgbotapi.NewMessage(12345, "Check our documentation at https://bssth.github.io/telegram-bot-api/")
 	msg.LinkPreviewOptions = &tgbotapi.LinkPreviewOptions{
+		// PreferLargeMedia is ignored unless URL is set explicitly.
+		URL:              "https://bssth.github.io/telegram-bot-api/",
 		PreferLargeMedia: true,
 		ShowAboveText:    true,
 	}
