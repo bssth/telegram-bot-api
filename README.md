@@ -37,10 +37,6 @@ import tgbotapi "github.com/bssth/telegram-bot-api/v7"
 
 Go 1.24 or newer is required.
 
-> **v7 is not released yet** (see the [changelog](./docs/changelog.md)).
-> Until `v7.0.0` is tagged, `go get` resolves `/v7` to a pseudo-version of
-> the latest `master` commit.
-
 The major version is **v7** because of the source-incompatible v6 → v7
 changes listed in [BREAKING.md](./BREAKING.md). v6 was the fork's first major
 version, started because the API is not source-compatible with upstream v5
